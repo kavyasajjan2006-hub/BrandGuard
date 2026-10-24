@@ -1,7 +1,8 @@
-
-import { useState } from "react";
+import React, { useState } from "react";
 import { ShieldCheck, Eye, EyeOff, ArrowRight } from "lucide-react";
 import "../AuthPages.css";
+
+const API_URL = "http://localhost:5000/api/auth";
 
 export default function Signup({ onNavigate, onSubmit }) {
   const [name, setName] = useState("");
@@ -10,10 +11,21 @@ export default function Signup({ onNavigate, onSubmit }) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     setError("");
+    setSuccess("");
+
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+
+    if (!trimmedName || !trimmedEmail) {
+      setError("Please enter your name and email address.");
+      return;
+    }
 
     if (password.length < 8) {
       setError("Your password must contain at least 8 characters.");
@@ -25,11 +37,53 @@ export default function Signup({ onNavigate, onSubmit }) {
       return;
     }
 
-    // Backend account creation will be connected here later.
-    if (onSubmit) {
-      onSubmit({ name: name.trim(), email: email.trim(), password });
-    } else {
-      setError("Signup is not connected yet. We'll connect it to the backend soon.");
+    setLoading(true);
+
+    try {
+      const response = await fetch(`${API_URL}/signup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: trimmedName,
+          email: trimmedEmail,
+          password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.success === false) {
+        throw new Error(
+          data.message || data.error || "Unable to create your account."
+        );
+      }
+
+      setSuccess(
+        data.message || "Account created successfully! You can now sign in."
+      );
+
+      setName("");
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
+
+      // If the parent component has a signup callback, notify it.
+      if (onSubmit) {
+        try {
+          onSubmit(data);
+        } catch (callbackError) {
+          console.error("Signup callback error:", callbackError);
+        }
+      }
+    } catch (err) {
+      setError(
+        err.message ||
+          "Unable to connect to the server. Please try again."
+      );
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -112,14 +166,16 @@ export default function Signup({ onNavigate, onSubmit }) {
               <button
                 type="button"
                 className="auth-eye-button"
-                onClick={() => setShowPassword(!showPassword)}
+                onClick={() => setShowPassword((previous) => !previous)}
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
               </button>
             </div>
 
-            <label htmlFor="signup-confirm-password">Confirm password</label>
+            <label htmlFor="signup-confirm-password">
+              Confirm password
+            </label>
             <input
               id="signup-confirm-password"
               type={showPassword ? "text" : "password"}
@@ -130,22 +186,40 @@ export default function Signup({ onNavigate, onSubmit }) {
               required
             />
 
-            {error && <p className="auth-error" role="alert">{error}</p>}
+            {error && (
+              <p className="auth-error" role="alert">
+                {error}
+              </p>
+            )}
 
-            <button type="submit" className="auth-submit">
-              Create account <ArrowRight size={18} />
+            {success && (
+              <p role="status" aria-live="polite">
+                {success}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              className="auth-submit"
+              disabled={loading}
+            >
+              {loading ? "Creating account..." : "Create account"}
+              {!loading && <ArrowRight size={18} />}
             </button>
           </form>
 
           <p className="auth-switch">
             Already have an account?{" "}
-            <button type="button" onClick={() => onNavigate("login")}>
+            <button
+              type="button"
+              onClick={() => onNavigate?.("login")}
+            >
               Sign in
             </button>
           </p>
 
           <p className="auth-legal">
-            Your account will be created once authentication is connected.
+            Your information is handled by the BrandGuard backend.
           </p>
         </div>
       </section>
