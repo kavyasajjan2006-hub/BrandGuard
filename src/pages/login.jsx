@@ -3,26 +3,75 @@ import React, { useState } from "react";
 import { ShieldCheck, Eye, EyeOff, ArrowRight } from "lucide-react";
 import "../AuthPages.css";
 
+const API_URL = "http://localhost:5000/api/auth";
+
 export default function Login({ onNavigate, onSubmit }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     setError("");
 
-    if (!email.trim() || !password) {
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail || !password) {
       setError("Please enter your email and password.");
       return;
     }
 
-    // Backend authentication will be connected here later.
-    if (onSubmit) {
-      onSubmit({ email: email.trim(), password });
-    } else {
-      setError("Login is not connected yet. We'll connect it to the backend soon.");
+    setLoading(true);
+
+    try {
+      const response = await fetch(`${API_URL}/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: cleanEmail,
+          password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.success === false) {
+        setError(data.message || "Invalid email or password.");
+        return;
+      }
+
+      if (!data.token) {
+        setError("Login failed: the server did not return an authentication token.");
+        return;
+      }
+
+      // Save the authenticated session.
+      localStorage.setItem("hackguard_token", data.token);
+
+      if (data.user) {
+        localStorage.setItem(
+          "hackguard_user",
+          JSON.stringify(data.user)
+        );
+      }
+
+      // Notify the parent component only after server verification.
+      if (onSubmit) {
+        await onSubmit(data);
+      } else {
+        setError("Login succeeded, but dashboard navigation is not configured.");
+      }
+    } catch (err) {
+      console.error("Login error:", err);
+      setError(
+        "Unable to connect to the server. Check that the backend is running."
+      );
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -103,16 +152,33 @@ export default function Login({ onNavigate, onSubmit }) {
               </button>
             </div>
 
-            {error && <p className="auth-error" role="alert">{error}</p>}
+            {error && (
+              <p className="auth-error" role="alert">
+                {error}
+              </p>
+            )}
 
-            <button type="submit" className="auth-submit">
-              Sign in <ArrowRight size={18} />
+            <button
+              type="submit"
+              className="auth-submit"
+              disabled={loading}
+            >
+              {loading ? (
+                "Signing in..."
+              ) : (
+                <>
+                  Sign in <ArrowRight size={18} />
+                </>
+              )}
             </button>
           </form>
 
           <p className="auth-switch">
             Don't have an account?{" "}
-            <button type="button" onClick={() => onNavigate("signup")}>
+            <button
+              type="button"
+              onClick={() => onNavigate?.("signup")}
+            >
               Create an account
             </button>
           </p>

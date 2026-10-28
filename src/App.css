@@ -1608,3 +1608,43 @@ h1 span {
     flex-basis: calc(100% - 45px);
   }
 }
+
+.score-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.score-summary > div {
+  padding: 18px;
+  border: 1px solid #dce5dc;
+  border-radius: 10px;
+  background: #f8faf7;
+}
+
+.score-summary p {
+  margin: 0 0 8px;
+  color: #647067;
+  font-size: 13px;
+}
+
+.score-summary h2,
+.score-summary h3 {
+  margin: 0;
+  color: #24543c;
+}
+
+.score-summary h2 {
+  font-size: 28px;
+}
+
+.score-summary h3 {
+  font-size: 20px;
+}
+
+@media (max-width: 600px) {
+  .score-summary {
+    grid-template-columns: 1fr;
+  }
+}

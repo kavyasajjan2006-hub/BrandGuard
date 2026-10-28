@@ -5,6 +5,7 @@ const path = require("path");
 
 const Brand = require("../models/Brand");
 const ComplianceReview = require("../models/ComplianceReview");
+const { reviewContent } = require("../utils/complianceEngine");
 const { sendEmail } = require("../utils/emailService");
 
 const evidenceDirectory = path.resolve(
@@ -37,7 +38,6 @@ function evidenceMetadata(file) {
   };
 }
 
-// Escape user-provided text before including it in HTML emails.
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>"']/g, (character) => {
     const entities = {
@@ -52,7 +52,6 @@ function escapeHtml(value = "") {
   });
 }
 
-// Email failure must not prevent a review API operation from succeeding.
 async function sendReviewNotification(user, subject, message) {
   try {
     if (!user || !user.email) {
@@ -75,13 +74,17 @@ async function sendReviewNotification(user, subject, message) {
 
     console.log(`BrandGuard notification sent to ${user.email}`);
   } catch (error) {
-    console.error("BrandGuard email notification failed:", error.message);
+    console.error(
+      "BrandGuard email notification failed:",
+      error.message
+    );
   }
 }
 
+// CREATE REVIEW
 async function createReview(req, res, next) {
   try {
-    const { brandId, title, description, findings = [] } = req.body;
+    const { brandId, title, description } = req.body;
 
     if (
       !brandId ||
@@ -103,13 +106,7 @@ async function createReview(req, res, next) {
       });
     }
 
-    if (!Array.isArray(findings)) {
-      return res.status(400).json({
-        success: false,
-        message: "Findings must be an array.",
-      });
-    }
-
+    // Only allow users to review content for their own brands.
     const brand = await Brand.findOne({
       _id: brandId,
       createdBy: req.user._id,
@@ -122,12 +119,29 @@ async function createReview(req, res, next) {
       });
     }
 
+    // Run the centralized compliance engine.
+    const complianceResult = reviewContent({
+      content: description.trim(),
+      brand,
+    });
+
+    // Map engine findings to the existing Mongoose finding schema.
+    const generatedFindings = (
+      complianceResult.findings || []
+    ).map((finding) => ({
+      title: finding.title,
+      description: finding.explanation,
+      severity: finding.severity,
+      recommendation: finding.suggestedFix,
+      status: "open",
+    }));
+
     const review = await ComplianceReview.create({
       brand: brand._id,
       createdBy: req.user._id,
       title: title.trim(),
       description: description.trim(),
-      findings,
+      findings: generatedFindings,
     });
 
     await review.populate("brand", "name");
@@ -144,12 +158,19 @@ async function createReview(req, res, next) {
       success: true,
       message: "Compliance review created successfully.",
       review,
+      compliance: {
+  score: review.overallScore,
+  riskLevel: review.riskLevel,
+  issueCount: review.findings.length,
+  summary: complianceResult.reviewSummary,
+},
     });
   } catch (error) {
     next(error);
   }
 }
 
+// GET THE SIGNED-IN USER'S REVIEWS
 async function getMyReviews(req, res, next) {
   try {
     const filter = { createdBy: req.user._id };
@@ -179,6 +200,7 @@ async function getMyReviews(req, res, next) {
   }
 }
 
+// UPDATE REVIEW STATUS
 async function updateReviewStatus(req, res, next) {
   try {
     const { reviewId } = req.params;
@@ -240,6 +262,7 @@ async function updateReviewStatus(req, res, next) {
   }
 }
 
+// UPDATE A FINDING'S STATUS
 async function updateFindingStatus(req, res, next) {
   try {
     const { reviewId, findingId } = req.params;
@@ -295,6 +318,7 @@ async function updateFindingStatus(req, res, next) {
   }
 }
 
+// GET A REVIEW'S SCORE
 async function getReviewScore(req, res, next) {
   try {
     const { reviewId } = req.params;
@@ -318,8 +342,6 @@ async function getReviewScore(req, res, next) {
       });
     }
 
-    await review.save();
-
     return res.status(200).json({
       success: true,
       reviewId: review._id,
@@ -332,6 +354,7 @@ async function getReviewScore(req, res, next) {
   }
 }
 
+// DASHBOARD STATISTICS
 async function getDashboardStats(req, res, next) {
   try {
     const reviews = await ComplianceReview.find({
@@ -366,7 +389,12 @@ async function getDashboardStats(req, res, next) {
         (finding) => finding.status !== "resolved"
       ).length;
 
-      if (Object.hasOwn(riskCounts, review.riskLevel)) {
+      if (
+        Object.prototype.hasOwnProperty.call(
+          riskCounts,
+          review.riskLevel
+        )
+      ) {
         riskCounts[review.riskLevel]++;
       }
     }
@@ -386,7 +414,7 @@ async function getDashboardStats(req, res, next) {
   }
 }
 
-// Upload one or more evidence files to an existing review.
+// UPLOAD EVIDENCE
 async function uploadReviewEvidence(req, res, next) {
   try {
     const { reviewId } = req.params;
@@ -420,7 +448,6 @@ async function uploadReviewEvidence(req, res, next) {
     }
 
     const newEvidence = req.files.map(evidenceMetadata);
-
     review.evidence.push(...newEvidence);
 
     try {
@@ -440,7 +467,7 @@ async function uploadReviewEvidence(req, res, next) {
   }
 }
 
-// Download evidence only if the signed-in user owns the review.
+// DOWNLOAD EVIDENCE
 async function downloadReviewEvidence(req, res, next) {
   try {
     const { reviewId, evidenceId } = req.params;
@@ -505,7 +532,7 @@ async function downloadReviewEvidence(req, res, next) {
   }
 }
 
-// Delete evidence metadata and its stored file.
+// DELETE EVIDENCE
 async function deleteReviewEvidence(req, res, next) {
   try {
     const { reviewId, evidenceId } = req.params;
@@ -553,10 +580,12 @@ async function deleteReviewEvidence(req, res, next) {
     review.evidence.pull({ _id: evidenceId });
     await review.save();
 
-    // Remove the physical file after metadata has been saved.
     await fs.unlink(filePath).catch((error) => {
       if (error.code !== "ENOENT") {
-        console.error("Could not remove evidence file:", error.message);
+        console.error(
+          "Could not remove evidence file:",
+          error.message
+        );
       }
     });
 

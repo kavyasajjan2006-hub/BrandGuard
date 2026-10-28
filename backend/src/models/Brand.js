@@ -36,6 +36,34 @@ const brandSchema = new mongoose.Schema(
       default: "",
     },
 
+    // Brand knowledge for compliance checking
+    toneOfVoice: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    brandGuidelines: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    approvedFacts: {
+      type: [String],
+      default: [],
+    },
+
+    approvedTerminology: {
+      type: [String],
+      default: [],
+    },
+
+    prohibitedPhrases: {
+      type: [String],
+      default: [],
+    },
+
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

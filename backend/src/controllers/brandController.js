@@ -3,7 +3,18 @@ const Brand = require("../models/Brand");
 
 async function createBrand(req, res, next) {
   try {
-    const { name, description, industry, website, logoUrl } = req.body;
+    const {
+      name,
+      description,
+      industry,
+      website,
+      logoUrl,
+      toneOfVoice,
+      brandGuidelines,
+      approvedFacts,
+      approvedTerminology,
+      prohibitedPhrases,
+    } = req.body;
 
     if (typeof name !== "string" || !name.trim()) {
       return res.status(400).json({
@@ -19,14 +30,16 @@ async function createBrand(req, res, next) {
       });
     }
 
-    const optionalFields = [
+    const optionalStringFields = [
       ["description", description, 2000],
       ["industry", industry, 100],
       ["website", website, 2048],
       ["logoUrl", logoUrl, 2048],
+      ["toneOfVoice", toneOfVoice, 2000],
+      ["brandGuidelines", brandGuidelines, 5000],
     ];
 
-    for (const [field, value, maxLength] of optionalFields) {
+    for (const [field, value, maxLength] of optionalStringFields) {
       if (value !== undefined && typeof value !== "string") {
         return res.status(400).json({
           success: false,
@@ -42,6 +55,34 @@ async function createBrand(req, res, next) {
       }
     }
 
+    const optionalArrayFields = [
+      ["approvedFacts", approvedFacts],
+      ["approvedTerminology", approvedTerminology],
+      ["prohibitedPhrases", prohibitedPhrases],
+    ];
+
+    for (const [field, value] of optionalArrayFields) {
+      if (value !== undefined) {
+        if (
+          !Array.isArray(value) ||
+          value.length > 100 ||
+          value.some(
+            (item) =>
+              typeof item !== "string" ||
+              !item.trim() ||
+              item.length > 500
+          )
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              `${field} must be an array of up to 100 non-empty strings ` +
+              "with each string at most 500 characters",
+          });
+        }
+      }
+    }
+
     const brand = await Brand.create({
       name: name.trim(),
       description:
@@ -49,6 +90,19 @@ async function createBrand(req, res, next) {
       industry: typeof industry === "string" ? industry.trim() : "",
       website: typeof website === "string" ? website.trim() : "",
       logoUrl: typeof logoUrl === "string" ? logoUrl.trim() : "",
+      toneOfVoice:
+        typeof toneOfVoice === "string" ? toneOfVoice.trim() : "",
+      brandGuidelines:
+        typeof brandGuidelines === "string"
+          ? brandGuidelines.trim()
+          : "",
+      approvedFacts: (approvedFacts || []).map((item) => item.trim()),
+      approvedTerminology: (approvedTerminology || []).map((item) =>
+        item.trim()
+      ),
+      prohibitedPhrases: (prohibitedPhrases || []).map((item) =>
+        item.trim()
+      ),
       createdBy: req.user._id,
     });
 

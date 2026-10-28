@@ -1,528 +1,704 @@
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
-  ShieldCheck, LayoutDashboard, FileSearch, BookOpen, History, Settings,
-  Bell, Search, ArrowRight, AlertTriangle, CheckCircle2, Info, X, Pencil,
-  Check, Sparkles, FileText, ChevronRight, RotateCcw, Upload, FileImage, File
+  ShieldCheck,
+  LayoutDashboard,
+  FileSearch,
+  BookOpen,
+  History,
+  LogOut,
+  AlertTriangle,
+  CheckCircle2,
+  RefreshCw,
+  Search,
+  Sparkles,
+  Upload,
+  FileText,
+  X,
+  Plus,
+  Building2,
 } from "lucide-react";
 
 import "./App.css";
 import Login from "./pages/login.jsx";
 import Signup from "./pages/signup.jsx";
 
-const MAX_FILE_SIZE = 15 * 1024 * 1024;
+const API_URL = "http://localhost:5000/api";
 
-// Demo Brand Kits
-const BRAND_KITS = {
-  novatech: {
-    id: "novatech",
-    name: "NovaTech",
-    description: "Technology that makes life simpler.",
-    approvedFacts: [
-      {
-        subject: "NovaPhone X",
-        attribute: "Battery",
-        value: "5000 mAh",
-        source: "Product specification v1"
-      },
-      {
-        subject: "NovaPhone X",
-        attribute: "Warranty",
-        value: "1 year",
-        source: "Warranty policy v1"
-      }
-    ],
-    bannedTerms: ["100% risk-free", "guaranteed best"],
-    preferredTerms: ["NovaPhone X", "NovaTech Support"],
-    tone: ["Clear", "Helpful", "Professional", "Honest"],
-    guidelines: [
-      "Use verified product specifications.",
-      "Avoid unsupported rankings and performance claims.",
-      "Use a clear, helpful, professional tone."
-    ]
-  },
+const DEMO_SAMPLE = `Meet our daily skincare essentials!
 
-  glowmax: {
-    id: "glowmax",
-    name: "GlowMax Skincare",
-    description: "Skincare with a thoughtful approach.",
-    approvedFacts: [
-      {
-        subject: "GlowMax Daily Cream",
-        attribute: "Skin type",
-        value: "Normal to dry skin",
-        source: "Product label v1"
-      },
-      {
-        subject: "GlowMax Daily Cream",
-        attribute: "Usage",
-        value: "Patch test before use",
-        source: "Product directions v1"
-      }
-    ],
-    bannedTerms: [
-      "permanent fairness",
-      "100% safe for everyone",
-      "cures acne"
-    ],
-    preferredTerms: [
-      "daily skincare",
-      "follow product directions"
-    ],
-    tone: ["Reassuring", "Clear", "Inclusive", "Evidence-led"],
-    guidelines: [
-      "Avoid unsupported skin transformation claims.",
-      "Do not promise cures or guaranteed results.",
-      "Avoid absolute safety claims; encourage following product directions."
-    ]
-  },
+Our hydrating face cleanser supports your daily skincare routine and helps maintain hydration.
 
-  greenbasket: {
-    id: "greenbasket",
-    name: "GreenBasket Foods",
-    description: "Good food, clearly explained.",
-    approvedFacts: [
-      {
-        subject: "GreenBasket Oat Bites",
-        attribute: "Pack size",
-        value: "200 g",
-        source: "Packaging specification v1"
-      },
-      {
-        subject: "GreenBasket Oat Bites",
-        attribute: "Ingredients",
-        value: "Oats, dates, almonds",
-        source: "Ingredient list v1"
-      }
-    ],
-    bannedTerms: [
-      "100% healthy for everyone",
-      "guaranteed weight loss",
-      "disease cure"
-    ],
-    preferredTerms: ["ingredient list", "serving suggestion"],
-    tone: ["Friendly", "Clear", "Honest", "Practical"],
-    guidelines: [
-      "Substantiate nutrition and health claims.",
-      "Do not promise weight loss or disease treatment.",
-      "Describe ingredients accurately."
-    ]
-  }
+Try our SPF 50 sunscreen as part of your daily sun protection routine.
+
+Our products guarantee results and cure acne in three days.
+
+Enjoy a simple routine designed for healthy-looking skin.`;
+
+const EMPTY_BRAND_FORM = {
+  name: "",
+  description: "",
+  industry: "",
+  website: "",
+  toneOfVoice: "",
+  brandGuidelines: "",
+  approvedFacts: "",
+  approvedTerminology: "",
+  prohibitedPhrases: "",
 };
 
-const sampleContent =
-  "NovaPhone X is India's No. 1 phone! It has a 2000 mAh battery and comes with a 1-year warranty. Buy now for a 100% risk-free experience.";
-
-function reviewContent(content, brand) {
-  const findings = [];
-
-  const add = (
-    category,
-    severity,
-    original,
-    reason,
-    suggestion,
-    source
-  ) => {
-    findings.push({
-      id: `${Date.now()}-${findings.length}-${Math.random()
-        .toString(36)
-        .slice(2, 8)}`,
-      category,
-      severity,
-      original,
-      reason,
-      suggestion,
-      source,
-      status: "OPEN"
-    });
+function normalizeBrand(item) {
+  return {
+    ...item,
+    id: item._id,
+    description: item.description || "",
+    tone: [item.toneOfVoice || "Clear"],
+    guidelines: item.brandGuidelines
+      ? [item.brandGuidelines]
+      : [],
+    approvedFacts: (item.approvedFacts || []).map((fact) =>
+      typeof fact === "string"
+        ? {
+            subject: item.name,
+            attribute: "Approved fact",
+            value: fact,
+            source: "Brand Kit",
+          }
+        : fact
+    ),
+    preferredTerms: item.approvedTerminology || [],
+    bannedTerms: item.prohibitedPhrases || [],
   };
+}
 
-  if (!content.trim()) return findings;
+function normalizeFinding(item, index) {
+  return {
+    id: item._id || `${Date.now()}-${index}`,
+    category: item.title || "Compliance issue",
+    severity: String(item.severity || "medium").toUpperCase(),
+    original: item.title || "Flagged content",
+    reason: item.description || "",
+    suggestion:
+      item.recommendation || "Review this content manually.",
+    source: "Brand compliance check",
+    status: String(item.status || "open").toUpperCase(),
+  };
+}
 
-  const claimRules = [
-    {
-      pattern: /\bIndia['’]s\s+No\.?\s*1\b/gi,
-      reason: "A number-one ranking needs reliable, approved supporting evidence.",
-      suggestion:
-        "Replace the ranking with a specific, verifiable product benefit."
-    },
-    {
-      pattern: /\bbest\s+in\s+India\b/gi,
-      reason: "A superlative claim needs evidence supporting the comparison.",
-      suggestion: "Describe a specific feature that can be verified."
-    },
-    {
-      pattern: /\bfastest\s+in\s+India\b/gi,
-      reason: "A comparative speed claim needs reliable evidence.",
-      suggestion: "State a verified performance specification instead."
-    },
-    {
-      pattern: /\bguaranteed\s+results?\b/gi,
-      reason: "A guarantee should only be used when supported by an approved policy.",
-      suggestion:
-        "Explain the expected benefit without promising a guaranteed outcome."
-    },
-    {
-      pattern: /\b100%\s+safe\s+for\s+everyone\b/gi,
-      reason: "Absolute safety claims may be misleading without strong evidence.",
-      suggestion:
-        "Use accurate safety information and any relevant product directions."
-    },
-    {
-      pattern:
-        /\b(permanently|permanent)\s+(cure|remove|fairness|weight loss|acne)\b/gi,
-      reason:
-        "This absolute outcome claim needs reliable substantiation and may mislead readers.",
-      suggestion:
-        "Describe only the specific, evidence-supported product benefit."
-    }
-  ];
+function normalizeReview(item) {
+  const reviewBrand = item.brand;
+  const reviewFindings = (item.findings || []).map(
+    normalizeFinding
+  );
 
-  claimRules.forEach(({ pattern, reason, suggestion }) => {
-    [...content.matchAll(pattern)].forEach((match) => {
-      add(
-        "Unsupported claim",
-        "HIGH",
-        match[0],
-        reason,
-        suggestion,
-        "General claim-checking rule"
-      );
-    });
-  });
+  return {
+    id: item._id,
+    title: item.title || "Content review",
+    content: item.description || "",
+    brandId:
+      typeof reviewBrand === "object"
+        ? reviewBrand?._id
+        : reviewBrand,
+    brandName:
+      typeof reviewBrand === "object"
+        ? reviewBrand?.name || "Brand"
+        : "Brand",
+    date: item.createdAt
+      ? new Date(item.createdAt).toLocaleString()
+      : "",
+    findings: reviewFindings,
+    count: reviewFindings.length,
+    overallScore:
+      item.overallScore ?? item.compliance?.score ?? null,
+    riskLevel:
+      item.riskLevel ?? item.compliance?.riskLevel ?? "",
+  };
+}
 
-  brand.bannedTerms.forEach((term) => {
-    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(escaped, "gi");
-
-    [...content.matchAll(pattern)].forEach((match) => {
-      add(
-        "Prohibited terminology",
-        "HIGH",
-        match[0],
-        `This phrase appears in the ${brand.name} prohibited-terms list.`,
-        "Remove this phrase or replace it with an accurate, factual description.",
-        `${brand.name} Brand Kit: prohibited terms`
-      );
-    });
-  });
-
-  brand.approvedFacts.forEach((fact) => {
-    if (fact.attribute.toLowerCase() === "battery") {
-      [...content.matchAll(/\b\d[\d,]*\s*mAh\b/gi)].forEach((match) => {
-        if (
-          match[0].replace(/[\s,]/g, "").toLowerCase() !==
-          fact.value.replace(/[\s,]/g, "").toLowerCase()
-        ) {
-          add(
-            "Fact inconsistency",
-            "HIGH",
-            match[0],
-            `The approved battery capacity for ${fact.subject} is ${fact.value}.`,
-            `Use the approved specification: ${fact.value}.`,
-            fact.source
-          );
-        }
-      });
-    }
-
-    if (fact.attribute.toLowerCase() === "warranty") {
-      [
-        ...content.matchAll(
-          /\b\d+\s*[- ]?\s*(?:year|years|month|months)\s+warranty\b/gi
-        )
-      ].forEach((match) => {
-        const actual = match[0]
-          .replace(/warranty/i, "")
-          .replace(/[-\s]/g, "")
-          .toLowerCase();
-
-        const approved = fact.value
-          .replace(/[-\s]/g, "")
-          .toLowerCase();
-
-        if (actual !== approved) {
-          add(
-            "Fact inconsistency",
-            "HIGH",
-            match[0],
-            `The approved warranty is ${fact.value}.`,
-            `Use the approved warranty: ${fact.value}.`,
-            fact.source
-          );
-        }
-      });
-    }
-  });
-
-  const tonePattern =
-    /\b(best|amazing|unbelievable|incredible|ultimate|revolutionary)\b/gi;
-
-  const toneMatches = [
-    ...new Map(
-      [...content.matchAll(tonePattern)].map((match) => [
-        match[0].toLowerCase(),
-        match[0]
-      ])
-    ).values()
-  ];
-
-  toneMatches.forEach((term) => {
-    add(
-      "Tone and language",
-      "MEDIUM",
-      term,
-      `Review this wording against ${brand.name}'s desired tone: ${brand.tone.join(
-        ", "
-      )}.`,
-      "Use a clear, helpful description of the product's benefits.",
-      `${brand.name} Brand Kit: tone guidelines`
-    );
-  });
-
-  return findings;
+function parseLines(value) {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function App() {
-  // Authentication screen navigation
-  const [authPage, setAuthPage] = useState("login");
+  const [authPage, setAuthPage] = useState(() => {
+  const token = localStorage.getItem("hackguard_token");
+ 
+  const user = localStorage.getItem("hackguard_user");
 
-  // Existing dashboard state
+  return token && user ? "dashboard" : "login";
+});
   const [page, setPage] = useState("Overview");
-  const [selectedBrandId, setSelectedBrandId] = useState("novatech");
+
+const [realBrands, setRealBrands] = useState([]);
+const [selectedBrandId, setSelectedBrandId] = useState(
+  () => localStorage.getItem("brandguard_selected_brand") || ""
+);
+useEffect(() => {
+  if (selectedBrandId) {
+    localStorage.setItem("brandguard_selected_brand", selectedBrandId);
+  }
+}, [selectedBrandId]);
+const [brandsLoading, setBrandsLoading] = useState(false);
+const [brandsError, setBrandsError] = useState("");
+
+
+  const [showBrandForm, setShowBrandForm] = useState(false);
+  const [brandForm, setBrandForm] = useState(EMPTY_BRAND_FORM);
+  const [brandSaving, setBrandSaving] = useState(false);
+  const [brandFormError, setBrandFormError] = useState("");
+  const [brandSuccess, setBrandSuccess] = useState("");
+
   const [content, setContent] = useState("");
+  const [title, setTitle] = useState(
+    "Content compliance review"
+  );
   const [findings, setFindings] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [reviewed, setReviewed] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [editText, setEditText] = useState("");
-  const [search, setSearch] = useState("");
-  const [currentReviewId, setCurrentReviewId] = useState(null);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [uploadError, setUploadError] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
+const [history, setHistory] = useState([]);
+const [search, setSearch] = useState("");
+const [reviewed, setReviewed] = useState(false);
 
-  const brand = BRAND_KITS[selectedBrandId];
+// NEW: Store the compliance score and risk level
+const [complianceScore, setComplianceScore] = useState(null);
+const [riskLevel, setRiskLevel] = useState("");
 
-  const activeFindings = findings.filter(
-    (finding) => finding.status === "OPEN"
-  );
+const [reviewLoading, setReviewLoading] = useState(false);
+const [reviewError, setReviewError] = useState("");
 
-  const highCount = activeFindings.filter(
-    (finding) => finding.severity === "HIGH"
-  ).length;
+const [uploadError, setUploadError] = useState("");
+const [isUploading, setIsUploading] = useState(false);
+const [uploadedFileName, setUploadedFileName] = useState("");
 
-  const resolvedCount = findings.filter(
-    (finding) => finding.status !== "OPEN"
-  ).length;
+  const token = localStorage.getItem("hackguard_token");
 
-  const filteredHistory = history.filter((item) =>
-    `${item.preview} ${item.brandName}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
-  );
+  const brand =
+    realBrands.find((item) => item._id === selectedBrandId) ||
+    realBrands[0] ||
+    null;
 
-  function handleBrandChange(event) {
-    setSelectedBrandId(event.target.value);
+  // Load saved brand kits after login.
+  useEffect(() => {
+    if (authPage !== "dashboard") return;
+
+    let cancelled = false;
+
+    async function loadBrands() {
+      setBrandsLoading(true);
+      setBrandsError("");
+
+      try {
+        const savedToken =
+          localStorage.getItem("hackguard_token");
+
+        if (!savedToken) {
+          throw new Error(
+            "Your login session is missing. Please log in again."
+          );
+        }
+
+        const response = await fetch(`${API_URL}/brands`, {
+          headers: {
+            Authorization: `Bearer ${savedToken}`,
+          },
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.message || "Failed to load brand kits."
+          );
+        }
+
+        const brands = (data.brands || []).map(normalizeBrand);
+
+        if (!cancelled) {
+          setRealBrands(brands);
+
+setSelectedBrandId((currentId) => {
+  const selectedId = brands.some(
+    (item) => item._id === currentId
+  )
+    ? currentId
+    : brands[0]?._id || "";
+
+  if (selectedId) {
+    localStorage.setItem("brandguard_selected_brand", selectedId);
+  } else {
+    localStorage.removeItem("brandguard_selected_brand");
+  }
+
+  return selectedId;
+});
+
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setBrandsError(
+            error.message || "Could not load brand kits."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setBrandsLoading(false);
+        }
+      }
+    }
+
+    loadBrands();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authPage]);
+
+  // Load previously saved reviews.
+  async function loadHistory() {
+    const savedToken =
+      localStorage.getItem("hackguard_token");
+
+    if (!savedToken) return;
+
+    try {
+      const response = await fetch(`${API_URL}/reviews`, {
+        headers: {
+          Authorization: `Bearer ${savedToken}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Could not load review history."
+        );
+      }
+
+      const reviews =
+        data.reviews || data.data?.reviews || [];
+
+      setHistory(reviews.map(normalizeReview));
+    } catch (error) {
+      setReviewError(
+        error.message || "Could not load review history."
+      );
+    }
+  }
+
+  useEffect(() => {
+    if (authPage === "dashboard" && token) {
+      loadHistory();
+    }
+  }, [authPage,token]);
+
+  // Update a field in the Create Brand Kit form.
+  function handleBrandFormChange(event) {
+    const { name, value } = event.target;
+
+    setBrandForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+
+    setBrandFormError("");
+    setBrandSuccess("");
+  }
+
+  // Open a fresh brand creation form.
+  function openBrandForm() {
+    setBrandForm(EMPTY_BRAND_FORM);
+    setBrandFormError("");
+    setBrandSuccess("");
+    setShowBrandForm(true);
+    setPage("Brand Kit");
+  }
+
+  // Save a new brand kit to the backend.
+  async function createBrand(event) {
+    event.preventDefault();
+
+    const savedToken =
+      localStorage.getItem("hackguard_token");
+
+    setBrandFormError("");
+    setBrandSuccess("");
+
+    if (!savedToken) {
+      setBrandFormError(
+        "Your login session is missing. Please log in again."
+      );
+      setAuthPage("login");
+      return;
+    }
+
+    if (!brandForm.name.trim()) {
+      setBrandFormError("Company name is required.");
+      return;
+    }
+
+    setBrandSaving(true);
+
+    try {
+      const payload = {
+        name: brandForm.name.trim(),
+        description: brandForm.description.trim(),
+        industry: brandForm.industry.trim(),
+        website: brandForm.website.trim(),
+        toneOfVoice: brandForm.toneOfVoice.trim(),
+        brandGuidelines: brandForm.brandGuidelines.trim(),
+        approvedFacts: parseLines(brandForm.approvedFacts),
+        approvedTerminology: parseLines(
+          brandForm.approvedTerminology
+        ),
+        prohibitedPhrases: parseLines(
+          brandForm.prohibitedPhrases
+        ),
+      };
+
+      const response = await fetch(`${API_URL}/brands`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${savedToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Could not create the brand kit."
+        );
+      }
+
+      const createdBrand =
+        data.brand || data.data?.brand;
+
+      if (!createdBrand?._id) {
+        throw new Error(
+          "The server did not return the saved brand. Please refresh and check your brand kits."
+        );
+      }
+
+      const normalized = normalizeBrand(createdBrand);
+
+      setRealBrands((previous) => [
+        normalized,
+        ...previous.filter(
+          (item) => item._id !== normalized._id
+        ),
+      ]);
+
+      setSelectedBrandId(normalized._id);
+      setBrandForm(EMPTY_BRAND_FORM);
+      setShowBrandForm(false);
+      setBrandSuccess(
+        `Brand kit "${normalized.name}" created successfully.`
+      );
+      setBrandsError("");
+    } catch (error) {
+      setBrandFormError(
+        error.message || "Could not create the brand kit."
+      );
+    } finally {
+      setBrandSaving(false);
+    }
+  }
+
+  // Restore demo sample content.
+  function useDemoSample() {
+    setTitle("Demo Skincare Campaign");
+    setContent(DEMO_SAMPLE);
+    setUploadedFileName("");
+    setFindings([]);
+    setReviewed(false);
+    setReviewError("");
     setUploadError("");
   }
 
-  function handleFileChange(event) {
+  // Read supported text files into the editor.
+  async function handleFileUpload(event) {
     const file = event.target.files?.[0];
-
-    setUploadError("");
-    setSelectedFile(null);
 
     if (!file) return;
 
-    const extensionAllowed = /\.(pdf|png|jpe?g)$/i.test(file.name);
+    setUploadError("");
+    setReviewError("");
+    setIsUploading(true);
 
-    const allowedMimeTypes = [
-      "application/pdf",
-      "image/png",
-      "image/jpeg"
-    ];
+    try {
+      const extension =
+        file.name.split(".").pop()?.toLowerCase();
 
-    if (
-      !extensionAllowed ||
-      (file.type && !allowedMimeTypes.includes(file.type))
-    ) {
+      const supportedExtensions = ["txt", "md", "csv"];
+
+      if (!supportedExtensions.includes(extension)) {
+        throw new Error(
+          "Please upload a TXT, MD, or CSV file. PDF, DOCX, and image text extraction are not currently supported."
+        );
+      }
+
+      const text = await file.text();
+
+      if (!text.trim()) {
+        throw new Error("The selected file is empty.");
+      }
+
+      setTitle(file.name);
+      setContent(text);
+      setUploadedFileName(file.name);
+      setFindings([]);
+      setReviewed(false);
+    } catch (error) {
       setUploadError(
-        "Unsupported file. Select a PDF, PNG, JPG, or JPEG file."
+        error.message || "Could not read the selected file."
       );
+    } finally {
+      setIsUploading(false);
       event.target.value = "";
-      return;
     }
-
-    if (file.size > MAX_FILE_SIZE) {
-      setUploadError(
-        "File is too large. The maximum file size is 15 MB."
-      );
-      event.target.value = "";
-      return;
-    }
-
-    setSelectedFile(file);
   }
 
-  function removeSelectedFile() {
-    setSelectedFile(null);
+  function clearUploadedFile() {
+    setUploadedFileName("");
+    setContent("");
+    setFindings([]);
+    setReviewed(false);
+    setUploadError("");
+    setReviewError("");
+    setComplianceScore(null);
+    setRiskLevel("");
+  }
+
+  // Submit the editor content for review.
+  async function runReview() {
+    const savedToken =
+      localStorage.getItem("hackguard_token");
+
+    setReviewError("");
     setUploadError("");
 
-    const input = document.getElementById("reviewFile");
+    if (!savedToken) {
+      setReviewError(
+        "Your login session is missing. Please log in again."
+      );
+      setAuthPage("login");
+      return;
+    }
 
-    if (input) input.value = "";
-  }
-
-  function saveFindingsToHistory(updatedFindings) {
-    if (currentReviewId === null) return;
-
-    setHistory((oldHistory) =>
-      oldHistory.map((review) =>
-        review.id === currentReviewId
-          ? {
-              ...review,
-              findings: updatedFindings,
-              count: updatedFindings.length
-            }
-          : review
-      )
-    );
-  }
-
-  function runReview() {
-    if (selectedFile) {
-      setUploadError(
-        "File text extraction is not connected yet. Remove the file and review pasted text for now."
+    if (!brand) {
+      setReviewError(
+        "No brand kit is available. Create a brand kit first."
       );
       return;
     }
 
     if (!content.trim()) {
-      window.alert(
-        "Please enter some content or select a supported file."
+      setReviewError(
+        "Please upload a file, use the demo sample, or enter content."
       );
       return;
     }
 
-    const results = reviewContent(content, brand);
-    const reviewId = Date.now();
+    setReviewLoading(true);
 
-    const review = {
-      id: reviewId,
-      content,
-      findings: results,
-      preview: content.slice(0, 65),
-      count: results.length,
-      date: new Date().toLocaleString(),
-      fileName: null,
-      brandId: brand.id,
-      brandName: brand.name
-    };
+    try {
+      const response = await fetch(`${API_URL}/reviews`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${savedToken}`,
+        },
+        body: JSON.stringify({
+          brandId: brand._id,
+          title: title.trim() || "Content compliance review",
+          description: content.trim(),
+        }),
+      });
 
-    setCurrentReviewId(reviewId);
-    setFindings(results);
-    setReviewed(true);
-    setHistory((oldHistory) => [review, ...oldHistory]);
-    setEditingId(null);
-    setEditText("");
-    setPage("Content review");
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Review creation failed."
+        );
+      }
+
+      const createdReview =
+        data.review ||
+        data.data?.review ||
+        data.data;
+
+      if (!createdReview || !createdReview._id) {
+        throw new Error(
+          "The review could not be loaded. Please try again."
+        );
+      }
+
+      const review = normalizeReview({
+        ...createdReview,
+        brand: createdReview.brand || brand,
+        description:
+          createdReview.description || content.trim(),
+        title:
+          createdReview.title ||
+          title ||
+          "Content compliance review",
+      });
+
+      review.brandId = brand._id;
+      review.brandName = brand.name;
+
+      setFindings(review.findings);
+      setComplianceScore(review.overallScore);
+      setRiskLevel(review.riskLevel);
+
+      setHistory((old) => [
+        review,
+        ...old.filter((item) => item.id !== review.id),
+      ]);
+      setReviewed(true);
+      setPage("Content review");
+    } catch (error) {
+      setReviewError(
+        error.message || "Could not create the review."
+      );
+    } finally {
+      setReviewLoading(false);
+    }
   }
 
-  function updateStatus(id, status) {
-    const updated = findings.map((finding) =>
-      finding.id === id ? { ...finding, status } : finding
+  // Update a finding's status.
+  async function changeFindingStatus(findingId, status) {
+    const review = history.find((item) =>
+      item.findings.some(
+        (finding) => finding.id === findingId
+      )
     );
 
-    setFindings(updated);
-    saveFindingsToHistory(updated);
-    setEditingId(null);
-    setEditText("");
-  }
-
-  function startEdit(finding) {
-    setEditingId(finding.id);
-    setEditText(finding.suggestion);
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setEditText("");
-  }
-
-  function saveEdit(id) {
-    if (!editText.trim()) {
-      window.alert("The suggested fix cannot be empty.");
+    if (!review) {
+      setReviewError(
+        "Review not found. Refresh the review history."
+      );
       return;
     }
 
-    const updated = findings.map((finding) =>
-      finding.id === id
-        ? {
-            ...finding,
-            suggestion: editText.trim(),
-            status: "EDITED"
-          }
-        : finding
-    );
+    const savedToken =
+      localStorage.getItem("hackguard_token");
 
-    setFindings(updated);
-    saveFindingsToHistory(updated);
-    setEditingId(null);
-    setEditText("");
-  }
+    if (!savedToken) {
+      setReviewError("Please log in again.");
+      return;
+    }
 
-  function startNewReview() {
-    setContent("");
-    setFindings([]);
-    setReviewed(false);
-    setEditingId(null);
-    setEditText("");
-    setCurrentReviewId(null);
-    setIsUploading(false);
-    removeSelectedFile();
-    setPage("Content review");
+    try {
+      const response = await fetch(
+        `${API_URL}/reviews/${review.id}/findings/${findingId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${savedToken}`,
+          },
+          body: JSON.stringify({
+            status: status.toLowerCase(),
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Could not update the finding."
+        );
+      }
+
+      setFindings((old) =>
+        old.map((item) =>
+          item.id === findingId
+            ? { ...item, status: status.toUpperCase() }
+            : item
+        )
+      );
+
+      setHistory((old) =>
+        old.map((item) =>
+          item.id === review.id
+            ? {
+                ...item,
+                findings: item.findings.map((finding) =>
+                  finding.id === findingId
+                    ? {
+                        ...finding,
+                        status: status.toUpperCase(),
+                      }
+                    : finding
+                ),
+              }
+            : item
+        )
+      );
+
+      setReviewError("");
+    } catch (error) {
+      setReviewError(
+        error.message || "Could not update the finding."
+      );
+    }
   }
 
   function openReview(review) {
-    if (
-      !review ||
-      typeof review.content !== "string" ||
-      !Array.isArray(review.findings)
-    ) {
-      window.alert(
-        "Full review details are unavailable. Please create a new review."
-      );
-      return;
-    }
-
-    setCurrentReviewId(review.id);
-    setContent(review.content);
-    setFindings(review.findings.map((finding) => ({ ...finding })));
+    setTitle(review.title || "Content compliance review");
+    setContent(review.content || "");
+    setFindings(review.findings || []);
+    setSelectedBrandId(review.brandId || "");
+    setUploadedFileName("");
     setReviewed(true);
-    setEditingId(null);
-    setEditText("");
-
-    setSelectedBrandId(
-      review.brandId && BRAND_KITS[review.brandId]
-        ? review.brandId
-        : "novatech"
-    );
-
-    removeSelectedFile();
+    setReviewError("");
+    setUploadError("");
     setPage("Content review");
   }
 
-  // Login and signup screens
+  function startNewReview() {
+    setTitle("Content compliance review");
+    setContent("");
+    setFindings([]);
+    setReviewed(false);
+    setReviewError("");
+    setUploadError("");
+    setUploadedFileName("");
+    setPage("Content review");
+  }
+
+  function logout() {
+    localStorage.removeItem("hackguard_token");
+    localStorage.removeItem("hackguard_user");
+
+    setRealBrands([]);
+    setSelectedBrandId("");
+    setHistory([]);
+    setFindings([]);
+    setContent("");
+    setUploadedFileName("");
+    setReviewed(false);
+    setReviewError("");
+    setUploadError("");
+    setShowBrandForm(false);
+    setBrandForm(EMPTY_BRAND_FORM);
+    setBrandSuccess("");
+    setBrandFormError("");
+    setAuthPage("login");
+  }
+
   if (authPage === "login") {
     return (
       <Login
         onNavigate={setAuthPage}
-        onSubmit={() => {
-          // Demo navigation only. Real authentication comes later.
-          setAuthPage("dashboard");
-        }}
+        onSubmit={() => setAuthPage("dashboard")}
       />
     );
   }
@@ -531,19 +707,26 @@ function App() {
     return (
       <Signup
         onNavigate={setAuthPage}
-        onSubmit={() => {
-          // Demo navigation only. Real registration comes later.
-          setAuthPage("login");
-        }}
+        onSubmit={() => setAuthPage("login")}
       />
     );
   }
+
+  const activeFindings = findings.filter(
+    (item) => item.status === "OPEN"
+  );
+
+  const filteredHistory = history.filter((item) =>
+    `${item.title} ${item.content} ${item.brandName}`
+      .toLowerCase()
+      .includes(search.toLowerCase())
+  );
 
   const navItems = [
     { name: "Overview", icon: LayoutDashboard },
     { name: "Content review", icon: FileSearch },
     { name: "Brand Kit", icon: BookOpen },
-    { name: "Review history", icon: History }
+    { name: "Review history", icon: History },
   ];
 
   return (
@@ -553,9 +736,12 @@ function App() {
           <div className="logo-mark">
             <ShieldCheck size={24} />
           </div>
+
           <div>
             <div className="brand-name">BrandGuard</div>
-            <div className="brand-caption">CONTENT ASSURANCE</div>
+            <div className="brand-caption">
+              CONTENT ASSURANCE
+            </div>
           </div>
         </div>
 
@@ -563,13 +749,13 @@ function App() {
 
         <div className="workspace-switch">
           <div className="workspace-avatar">
-            {brand.name.charAt(0)}
+            {brand?.name?.charAt(0) || "B"}
           </div>
+
           <div className="workspace-text">
-            <strong>{brand.name}</strong>
+            <strong>{brand?.name || "Your workspace"}</strong>
             <span>Selected company</span>
           </div>
-          <ChevronRight size={16} />
         </div>
 
         <div className="nav-label">MENU</div>
@@ -578,7 +764,9 @@ function App() {
           {navItems.map(({ name, icon: Icon }) => (
             <button
               key={name}
-              className={`nav-item ${page === name ? "active" : ""}`}
+              className={`nav-item ${
+                page === name ? "active" : ""
+              }`}
               onClick={() => setPage(name)}
             >
               <Icon size={18} />
@@ -598,32 +786,13 @@ function App() {
           <div className="help-card">
             <Sparkles size={19} />
             <strong>A second pair of eyes.</strong>
-            <p>Catch issues before your content goes live.</p>
+            <p>
+              Catch issues before your content goes live.
+            </p>
           </div>
 
-          <button
-            className="nav-item"
-            onClick={() =>
-              window.alert("Demo settings are not configured yet.")
-            }
-          >
-            <Settings size={18} />
-            <span>Settings</span>
-          </button>
-
-          <div className="profile-row">
-            <div className="profile-avatar">BG</div>
-            <div>
-              <strong>Brand reviewer</strong>
-              <span>Demo account</span>
-            </div>
-          </div>
-
-          <button
-            className="nav-item"
-            onClick={() => setAuthPage("login")}
-          >
-            <ArrowRight size={18} />
+          <button className="nav-item" onClick={logout}>
+            <LogOut size={18} />
             <span>Log out</span>
           </button>
         </div>
@@ -632,29 +801,74 @@ function App() {
       <main className="main-area">
         <header className="topbar">
           <div className="breadcrumb">
-            Workspace <ChevronRight size={14} />
-            <strong>{page}</strong>
-          </div>
-
-          <div className="topbar-actions">
-            <div className="demo-pill">
-              <span />
-              Demo mode
-            </div>
-
-            <button
-              className="icon-button"
-              aria-label="Notifications"
-              onClick={() => window.alert("No new notifications.")}
-            >
-              <Bell size={19} />
-            </button>
-
-            <div className="topbar-avatar">BG</div>
+            Workspace <strong>{page}</strong>
           </div>
         </header>
 
         <div className="page-content">
+          {brandsLoading && <p>Loading your brand kits…</p>}
+
+          {brandsError && (
+            <div role="alert" className="upload-error">
+              {brandsError}
+
+              <button
+                className="secondary-button"
+                onClick={() => setAuthPage("login")}
+              >
+                Log in again
+              </button>
+            </div>
+          )}
+
+          {brandSuccess && (
+            <div
+              role="status"
+              style={{
+                margin: "12px 0",
+                padding: "12px 16px",
+                border: "1px solid #a7dfbd",
+                borderRadius: "8px",
+                color: "#17683a",
+                background: "#effbf3",
+              }}
+            >
+              <CheckCircle2
+                size={17}
+                style={{
+                  verticalAlign: "middle",
+                  marginRight: "8px",
+                }}
+              />
+              {brandSuccess}
+            </div>
+          )}
+
+          {!brandsLoading &&
+            !brandsError &&
+            realBrands.length === 0 && (
+              <section className="panel">
+                <h2>No brand kits found</h2>
+                <p>
+                  Create your first brand kit before starting a
+                  content review.
+                </p>
+                <button
+                  className="primary-button"
+                  onClick={openBrandForm}
+                >
+                  <Plus size={17} />
+                  Create your first Brand Kit
+                </button>
+              </section>
+            )}
+
+          {reviewError && (
+            <div role="alert" className="upload-error">
+              {reviewError}
+            </div>
+          )}
+
           {page === "Overview" && (
             <>
               <div className="page-heading">
@@ -662,197 +876,53 @@ function App() {
                   <div className="eyebrow">
                     YOUR CONTENT, WITH CONFIDENCE
                   </div>
-                  <h1>
-                    Good morning, reviewer <span>✳</span>
-                  </h1>
+                  <h1>Good morning, reviewer</h1>
                   <p className="subheading">
-                    Let's make sure your next piece of content is ready
-                    for the world.
+                    Review content against your saved brand rules.
                   </p>
                 </div>
 
                 <button
                   className="primary-button"
                   onClick={startNewReview}
+                  disabled={!brand}
                 >
                   <FileSearch size={17} />
                   Start a review
-                  <ArrowRight size={16} />
                 </button>
               </div>
 
-              <section className="welcome-banner">
-                <div className="banner-copy">
-                  <span className="banner-tag">
-                    <Sparkles size={14} />
-                    YOUR BRAND, PROTECTED
-                  </span>
+              <section className="panel">
+                <h2>Recent reviews</h2>
 
-                  <h2>
-                    Better content starts
-                    <br />
-                    with a second look.
-                  </h2>
-
-                  <p>
-                    Review your copy against brand rules, approved facts,
-                    and tone guidelines before publishing.
-                  </p>
-
-                  <button
-                    className="banner-button"
-                    onClick={startNewReview}
-                  >
-                    Review content <ArrowRight size={16} />
-                  </button>
-                </div>
-
-                <div className="banner-art">
-                  <div className="art-circle circle-one" />
-                  <div className="art-circle circle-two" />
-
-                  <div className="art-document">
-                    <div className="art-doc-header">
-                      <ShieldCheck size={22} />
-                      <span>BRAND CHECK</span>
+                {history.length === 0 ? (
+                  <div className="empty-state">
+                    <div className="history-icon">
+                      <FileSearch size={22} />
                     </div>
-
-                    <div className="art-line long" />
-                    <div className="art-line" />
-
-                    <div className="art-flag">
-                      <AlertTriangle size={16} />
-                      Claim needs evidence
-                    </div>
-
-                    <div className="art-line long" />
-                    <div className="art-line short" />
-
-                    <div className="art-approved">
-                      <CheckCircle2 size={16} />
-                      Brand facts matched
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <div className="section-heading">
-                <div>
-                  <h2>Your review overview</h2>
-                  <p>
-                    A snapshot of your content checks in this session.
-                  </p>
-                </div>
-                <span className="small-tag">SESSION DATA</span>
-              </div>
-
-              <section className="stats-grid">
-                <StatCard
-                  icon={<FileText />}
-                  label="Total reviews"
-                  value={history.length}
-                  note="In this session"
-                />
-                <StatCard
-                  icon={<AlertTriangle />}
-                  label="Open findings"
-                  value={activeFindings.length}
-                  note="Need attention"
-                  tone="orange"
-                />
-                <StatCard
-                  icon={<CheckCircle2 />}
-                  label="Resolved findings"
-                  value={resolvedCount}
-                  note="Actions taken"
-                  tone="green"
-                />
-                <StatCard
-                  icon={<ShieldCheck />}
-                  label="High severity"
-                  value={highCount}
-                  note="Prioritise these"
-                  tone="red"
-                />
-              </section>
-
-              <section className="content-grid">
-                <div className="panel recent-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h3>Recent reviews</h3>
-                      <p>Your latest content checks</p>
-                    </div>
-
+                    <h3>Your reviews will appear here</h3>
+                    <p>
+                      Start a content review to check your copy
+                      against your brand guidelines.
+                    </p>
                     <button
-                      className="text-button"
-                      onClick={() => setPage("Review history")}
+                      className="primary-button"
+                      onClick={startNewReview}
+                      disabled={!brand}
                     >
-                      View history <ArrowRight size={14} />
+                      <Sparkles size={16} />
+                      Start your first review
                     </button>
                   </div>
-
-                  {history.length === 0 ? (
-                    <EmptyState
-                      icon={<History />}
-                      title="Nothing reviewed yet"
-                      text="Run your first review to see results here."
-                      action="Start a review"
-                      onClick={startNewReview}
+                ) : (
+                  history.slice(0, 5).map((item) => (
+                    <HistoryRow
+                      key={item.id}
+                      item={item}
+                      onOpen={openReview}
                     />
-                  ) : (
-                    history.slice(0, 4).map((item) => (
-                      <HistoryRow
-                        key={item.id}
-                        item={item}
-                        onOpen={openReview}
-                      />
-                    ))
-                  )}
-                </div>
-
-                <div className="panel checklist-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h3>Brand readiness</h3>
-                      <p>{brand.name} workspace</p>
-                    </div>
-                  </div>
-
-                  <div className="readiness-score">
-                    <span>Brand Kit</span>
-                    <strong>Active</strong>
-                  </div>
-
-                  <div className="progress-track">
-                    <div
-                      className="progress-fill"
-                      style={{ width: "100%" }}
-                    />
-                  </div>
-
-                  <div className="checklist-row">
-                    <CheckCircle2 size={17} />
-                    <span>Approved facts configured</span>
-                  </div>
-
-                  <div className="checklist-row">
-                    <CheckCircle2 size={17} />
-                    <span>Terminology rules configured</span>
-                  </div>
-
-                  <div className="checklist-row">
-                    <CheckCircle2 size={17} />
-                    <span>Review rules enabled</span>
-                  </div>
-
-                  <button
-                    className="secondary-button full-width"
-                    onClick={() => setPage("Brand Kit")}
-                  >
-                    View Brand Kit <ArrowRight size={15} />
-                  </button>
-                </div>
+                  ))
+                )}
               </section>
             </>
           )}
@@ -861,11 +931,14 @@ function App() {
             <>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">CONTENT ASSURANCE</div>
+                  <div className="eyebrow">
+                    CONTENT ASSURANCE
+                  </div>
                   <h1>Content review</h1>
                   <p className="subheading">
-                    Check your content against the selected company's
-                    guidelines.
+                    Upload a supported text file, use a demo
+                    sample, or paste content to review it against
+                    your brand rules.
                   </p>
                 </div>
 
@@ -873,207 +946,284 @@ function App() {
                   className="secondary-button"
                   onClick={startNewReview}
                 >
-                  <RotateCcw size={16} />
+                  <RefreshCw size={16} />
                   New review
                 </button>
               </div>
 
-              <div className="review-layout">
-                <section className="panel editor-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h3>Submit your content</h3>
-                      <p>Paste text or upload a PDF or image to review.</p>
-                    </div>
-                    <span className="step-number">01</span>
-                  </div>
+              {!brand && (
+                <section className="panel">
+                  <p>Create a brand kit before reviewing content.</p>
+                  <button
+                    className="primary-button"
+                    onClick={openBrandForm}
+                  >
+                    <Plus size={17} />
+                    Create Brand Kit
+                  </button>
+                </section>
+              )}
 
-                  <label className="field-label" htmlFor="brandSelect">
-                    Company / Brand Kit
+              <section className="panel editor-panel">
+                <label
+                  className="field-label"
+                  htmlFor="reviewTitle"
+                >
+                  Review title
+                </label>
+
+                <input
+                  id="reviewTitle"
+                  className="select-field"
+                  value={title}
+                  onChange={(event) =>
+                    setTitle(event.target.value)
+                  }
+                />
+
+                <label
+                  className="field-label"
+                  htmlFor="brandSelect"
+                >
+                  Brand Kit
+                </label>
+
+                <select
+                  id="brandSelect"
+                  className="select-field"
+                  value={brand?._id || ""}
+                  onChange={(event) =>
+                    setSelectedBrandId(event.target.value)
+                  }
+                  disabled={!realBrands.length}
+                >
+                  {realBrands.map((item) => (
+                    <option
+                      value={item._id}
+                      key={item._id}
+                    >
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+
+                <label
+                  className="field-label"
+                  htmlFor="contentInput"
+                >
+                  Content to review
+                </label>
+
+                <div
+                  className="upload-actions"
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "12px",
+                    margin: "12px 0 16px",
+                  }}
+                >
+                  <label
+                    className="secondary-button upload-button"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                      cursor: isUploading ? "wait" : "pointer",
+                    }}
+                  >
+                    <Upload size={16} />
+                    {isUploading ? "Reading file..." : "Upload File"}
+                    <input
+                      type="file"
+                      accept=".txt,.csv,.md"
+                      onChange={handleFileUpload}
+                      disabled={isUploading}
+                      hidden
+                    />
                   </label>
 
-                  <select
-                    id="brandSelect"
-                    className="select-field"
-                    value={selectedBrandId}
-                    onChange={handleBrandChange}
-                  >
-                    {Object.values(BRAND_KITS).map((item) => (
-                      <option value={item.id} key={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  <p className="brand-selection-hint">
-                    <Info size={14} />
-                    Review will use {brand.name}'s guidelines.
-                  </p>
-
-                  <div className="upload-section">
-                    <label className="field-label" htmlFor="reviewFile">
-                      Upload a file
-                    </label>
-
-                    <div className="upload-help">
-                      <Upload size={18} />
-                      <span>
-                        PDF, PNG, JPG or JPEG · Maximum 15 MB
-                      </span>
-                    </div>
-
-                    <input
-                      id="reviewFile"
-                      type="file"
-                      accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
-                      onChange={handleFileChange}
-                    />
-
-                    {uploadError && (
-                      <p className="upload-error" role="alert">
-                        {uploadError}
-                      </p>
-                    )}
-
-                    {selectedFile && (
-                      <div className="selected-file">
-                        {selectedFile.type === "application/pdf" ? (
-                          <File size={20} />
-                        ) : (
-                          <FileImage size={20} />
-                        )}
-
-                        <span>
-                          <strong>{selectedFile.name}</strong>
-                          <small>
-                            {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
-                          </small>
-                        </span>
-
-                        <button
-                          type="button"
-                          className="action-button dismiss-action"
-                          onClick={removeSelectedFile}
-                        >
-                          <X size={14} /> Remove
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="field-label-row">
-                    <label className="field-label" htmlFor="contentInput">
-                      Content to review
-                    </label>
-                    <span>{content.length} characters</span>
-                  </div>
-
-                  <textarea
-                    id="contentInput"
-                    className="content-textarea"
-                    value={content}
-                    onChange={(event) => setContent(event.target.value)}
-                    placeholder="Or paste your marketing copy, product description, or social media post here..."
-                  />
-
-                  <div className="editor-footer">
-                    <span>
-                      <Info size={14} /> Text review · Demo rules
-                    </span>
-
-                    <button
-                      className="text-button"
-                      onClick={() => {
-                        removeSelectedFile();
-                        setContent(sampleContent);
-                        setUploadError("");
-                      }}
-                    >
-                      Load sample <ArrowRight size={14} />
-                    </button>
-                  </div>
-
                   <button
-                    className="primary-button review-button"
-                    onClick={runReview}
-                    disabled={isUploading}
+                    type="button"
+                    className="secondary-button"
+                    onClick={useDemoSample}
                   >
-                    <Sparkles size={17} />
-                    Review content
-                    <ArrowRight size={16} />
+                    <Sparkles size={16} />
+                    Use Demo Sample
                   </button>
 
-                  <p className="privacy-note">
-                    <ShieldCheck size={14} />
-                    Demo mode: pasted text is checked locally in your browser.
-                  </p>
-                </section>
-
-                <section className="panel findings-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h3>Review findings</h3>
-                      <p>
-                        Issues detected using {brand.name}'s demo rules.
-                      </p>
-                    </div>
-                    <span className="step-number">02</span>
-                  </div>
-
-                  {!reviewed ? (
-                    <EmptyState
-                      icon={<FileSearch />}
-                      title="Ready when you are"
-                      text="Submit your text to see brand and claim checks here."
-                    />
-                  ) : findings.length === 0 ? (
-                    <div className="clean-state">
-                      <CheckCircle2 size={36} />
-                      <h3>No issues detected by the demo rules</h3>
-                      <p>
-                        This is not a guarantee that the content is fully
-                        compliant. Review it before publishing.
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="finding-summary">
-                        <div>
-                          <strong>{findings.length}</strong>
-                          <span>Total findings</span>
-                        </div>
-                        <div>
-                          <strong>{activeFindings.length}</strong>
-                          <span>Open</span>
-                        </div>
-                        <div>
-                          <strong>{resolvedCount}</strong>
-                          <span>Resolved</span>
-                        </div>
-                      </div>
-
-                      {findings.map((finding) => (
-                        <FindingCard
-                          key={finding.id}
-                          finding={finding}
-                          editingId={editingId}
-                          editText={editText}
-                          setEditText={setEditText}
-                          startEdit={startEdit}
-                          cancelEdit={cancelEdit}
-                          saveEdit={saveEdit}
-                          updateStatus={updateStatus}
-                        />
-                      ))}
-                    </>
+                  {content && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={clearUploadedFile}
+                    >
+                      <X size={16} />
+                      Clear content
+                    </button>
                   )}
+                </div>
 
-                  <p className="disclaimer">
-                    Prototype checks are rule-based and may miss context.
-                    Human review is required.
-                  </p>
-                </section>
-              </div>
+                {uploadedFileName && (
+                  <div
+                    className="uploaded-file"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    <FileText size={17} />
+                    <span>
+                      Loaded file:{" "}
+                      <strong>{uploadedFileName}</strong>
+                    </span>
+                  </div>
+                )}
+
+                {uploadError && (
+                  <div
+                    className="upload-error"
+                    role="alert"
+                    style={{
+                      margin: "12px 0",
+                      padding: "12px",
+                      border: "1px solid #f0b5b5",
+                      borderRadius: "8px",
+                      color: "#a12626",
+                      background: "#fff5f5",
+                    }}
+                  >
+                    {uploadError}
+                  </div>
+                )}
+
+                <textarea
+                  id="contentInput"
+                  className="content-textarea"
+                  value={content}
+                  onChange={(event) => {
+                    setContent(event.target.value);
+                    setUploadedFileName("");
+                  }}
+                  placeholder="Upload a supported text file, use the demo sample, or paste your marketing copy here..."
+                />
+
+                <p>{content.length} characters</p>
+
+                <button
+                  className="primary-button review-button"
+                  onClick={runReview}
+                  disabled={reviewLoading || !brand}
+                >
+                  <Sparkles size={17} />
+                  {reviewLoading ? "Reviewing..." : "Review content"}
+                </button>
+
+                <p className="privacy-note">
+                  Check your content against your selected brand
+                  guidelines before publishing.
+                </p>
+                <p className="privacy-note">
+                  Supported file formats: TXT, MD, and CSV.
+                </p>
+              </section>
+
+            
+
+                   
+<section className="panel findings-panel">
+  {reviewed && (
+    <div className="score-summary">
+      <div>
+        <p>Compliance score</p>
+        <h2>
+          {complianceScore !== null
+            ? `${complianceScore}/100`
+            : "Score unavailable"}
+        </h2>
+      </div>
+
+      <div>
+        <p>Risk level</p>
+        <h3>
+          {riskLevel
+            ? riskLevel.replace(/_/g, " ")
+            : "Unavailable"}
+        </h3>
+      </div>
+
+      <div>
+        <p>Findings detected</p>
+        <h3>{findings.length}</h3>
+      </div>
+    </div>
+  )}
+
+  <h2>Review findings</h2>
+
+  {!reviewed ? (
+    <p>
+      Upload a supported text file, load the demo
+      sample, or enter content and click Review
+      content.
+    </p>
+  ) : findings.length === 0 ? (
+    <p>
+      No findings were returned. Human review is
+      still recommended before publishing.
+    </p>
+  ) : (
+    findings.map((item) => (
+      <article
+        className="finding-card"
+        key={item.id}
+      >
+        <div className="finding-card-top">
+          <span
+            className={`severity ${item.severity.toLowerCase()}`}
+          >
+            <AlertTriangle size={12} />
+            {item.severity}
+          </span>
+          <strong>{item.category}</strong>
+        </div>
+
+        <p>
+          <strong>Issue:</strong>{" "}
+          {item.reason || item.original}
+        </p>
+
+        <p>
+          <strong>Suggested improvement:</strong>{" "}
+          {item.suggestion}
+        </p>
+
+        <p>
+          <small>{item.source}</small>
+        </p>
+
+        {item.status === "OPEN" && (
+          <button
+            className="secondary-button"
+            onClick={() =>
+              changeFindingStatus(item.id, "RESOLVED")
+            }
+          >
+            <CheckCircle2 size={15} />
+            Mark resolved
+          </button>
+        )}
+
+        {item.status !== "OPEN" && <p>Resolved</p>}
+      </article>
+    ))
+  )}
+</section>
+
+
             </>
           )}
 
@@ -1084,140 +1234,316 @@ function App() {
                   <div className="eyebrow">BRAND SETTINGS</div>
                   <h1>Company Brand Kits</h1>
                   <p className="subheading">
-                    Choose a company to view the guidelines used during
-                    content review.
+                    Create and manage your company information,
+                    guidelines, and approved language.
                   </p>
                 </div>
-                <span className="small-tag">
-                  {Object.keys(BRAND_KITS).length} DEMO BRANDS
-                </span>
+
+                {!showBrandForm && (
+                  <button
+                    className="primary-button"
+                    onClick={openBrandForm}
+                  >
+                    <Plus size={17} />
+                    Create Brand Kit
+                  </button>
+                )}
               </div>
 
-              <section className="panel brand-selector-panel">
-                <label className="field-label" htmlFor="brandKitSelect">
-                  Select company
-                </label>
-
-                <select
-                  id="brandKitSelect"
-                  className="select-field"
-                  value={selectedBrandId}
-                  onChange={handleBrandChange}
-                >
-                  {Object.values(BRAND_KITS).map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-
-                <p className="muted-copy">
-                  Changing the company changes the Brand Kit used for new
-                  reviews. These are example guidelines for prototype testing.
-                </p>
-              </section>
-
-              <section className="panel brand-profile">
-                <div className="brand-profile-icon">
-                  {brand.name.charAt(0)}
-                </div>
-                <div>
-                  <h2>{brand.name}</h2>
-                  <p>{brand.description}</p>
-                  <span className="status-badge">
-                    <CheckCircle2 size={14} />
-                    Brand Kit active for this company
-                  </span>
-                </div>
-              </section>
-
-              <div className="brand-kit-grid">
+              {showBrandForm && (
                 <section className="panel">
-                  <div className="panel-heading">
+                  <div className="page-heading">
                     <div>
-                      <h3>Approved facts</h3>
-                      <p>Facts used for demo comparisons</p>
+                      <h2>Create a new Brand Kit</h2>
+                      <p className="subheading">
+                        Add your company details and content rules.
+                        Only the company name is required.
+                      </p>
                     </div>
-                    <BookOpen size={20} />
                   </div>
 
-                  {brand.approvedFacts.map((fact, index) => (
+                  {brandFormError && (
                     <div
-                      className="fact-row"
-                      key={`${fact.attribute}-${index}`}
+                      className="upload-error"
+                      role="alert"
+                      style={{ marginBottom: "16px" }}
                     >
-                      <div>
-                        <strong>{fact.subject}</strong>
-                        <span>{fact.attribute}</span>
-                      </div>
-
-                      <div className="fact-value">
-                        {fact.value}
-                        <small>{fact.source}</small>
-                      </div>
+                      {brandFormError}
                     </div>
-                  ))}
-                </section>
+                  )}
 
+                  <form onSubmit={createBrand}>
+                    <label className="field-label" htmlFor="brandName">
+                      Company name *
+                    </label>
+                    <input
+                      id="brandName"
+                      name="name"
+                      className="select-field"
+                      value={brandForm.name}
+                      onChange={handleBrandFormChange}
+                      placeholder="e.g. Acme Skincare"
+                      required
+                    />
+
+                    <label
+                      className="field-label"
+                      htmlFor="brandDescription"
+                    >
+                      Company description
+                    </label>
+                    <textarea
+                      id="brandDescription"
+                      name="description"
+                      className="content-textarea"
+                      value={brandForm.description}
+                      onChange={handleBrandFormChange}
+                      placeholder="What does your company do?"
+                      rows={3}
+                    />
+
+                    <label
+                      className="field-label"
+                      htmlFor="brandIndustry"
+                    >
+                      Industry
+                    </label>
+                    <input
+                      id="brandIndustry"
+                      name="industry"
+                      className="select-field"
+                      value={brandForm.industry}
+                      onChange={handleBrandFormChange}
+                      placeholder="e.g. Skincare, Technology, Healthcare"
+                    />
+
+                    <label
+                      className="field-label"
+                      htmlFor="brandWebsite"
+                    >
+                      Website
+                    </label>
+                    <input
+                      id="brandWebsite"
+                      name="website"
+                      type="url"
+                      className="select-field"
+                      value={brandForm.website}
+                      onChange={handleBrandFormChange}
+                      placeholder="https://example.com"
+                    />
+
+                    <label
+                      className="field-label"
+                      htmlFor="brandTone"
+                    >
+                      Tone of voice
+                    </label>
+                    <input
+                      id="brandTone"
+                      name="toneOfVoice"
+                      className="select-field"
+                      value={brandForm.toneOfVoice}
+                      onChange={handleBrandFormChange}
+                      placeholder="e.g. Friendly, professional, confident"
+                    />
+
+                    <label
+                      className="field-label"
+                      htmlFor="brandGuidelines"
+                    >
+                      Brand guidelines
+                    </label>
+                    <textarea
+                      id="brandGuidelines"
+                      name="brandGuidelines"
+                      className="content-textarea"
+                      value={brandForm.brandGuidelines}
+                      onChange={handleBrandFormChange}
+                      placeholder="Describe your brand's writing rules and messaging requirements."
+                      rows={4}
+                    />
+
+                    <label
+                      className="field-label"
+                      htmlFor="approvedFacts"
+                    >
+                      Approved facts
+                    </label>
+                    <textarea
+                      id="approvedFacts"
+                      name="approvedFacts"
+                      className="content-textarea"
+                      value={brandForm.approvedFacts}
+                      onChange={handleBrandFormChange}
+                      placeholder={"Enter one approved fact per line.\nExample: Founded in 2020"}
+                      rows={4}
+                    />
+
+                    <label
+                      className="field-label"
+                      htmlFor="approvedTerminology"
+                    >
+                      Approved terminology
+                    </label>
+                    <textarea
+                      id="approvedTerminology"
+                      name="approvedTerminology"
+                      className="content-textarea"
+                      value={brandForm.approvedTerminology}
+                      onChange={handleBrandFormChange}
+                      placeholder={"Enter one preferred term per line.\nExample: Customers"}
+                      rows={3}
+                    />
+
+                    <label
+                      className="field-label"
+                      htmlFor="prohibitedPhrases"
+                    >
+                      Prohibited phrases
+                    </label>
+                    <textarea
+                      id="prohibitedPhrases"
+                      name="prohibitedPhrases"
+                      className="content-textarea"
+                      value={brandForm.prohibitedPhrases}
+                      onChange={handleBrandFormChange}
+                      placeholder={"Enter one prohibited phrase per line.\nExample: Guaranteed results"}
+                      rows={3}
+                    />
+
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "12px",
+                        marginTop: "20px",
+                      }}
+                    >
+                      <button
+                        type="submit"
+                        className="primary-button"
+                        disabled={brandSaving}
+                      >
+                        <Building2 size={17} />
+                        {brandSaving
+                          ? "Saving Brand Kit..."
+                          : "Save Brand Kit"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={brandSaving}
+                        onClick={() => {
+                          setShowBrandForm(false);
+                          setBrandForm(EMPTY_BRAND_FORM);
+                          setBrandFormError("");
+                        }}
+                      >
+                        <X size={16} />
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </section>
+              )}
+
+              {!showBrandForm && brand && (
                 <section className="panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h3>Terminology</h3>
-                      <p>Brand-approved language</p>
-                    </div>
-                    <FileText size={20} />
-                  </div>
+                  <label
+                    className="field-label"
+                    htmlFor="brandKitSelect"
+                  >
+                    Select company
+                  </label>
 
-                  <p className="mini-section-title">PREFERRED TERMS</p>
+                  <select
+                    id="brandKitSelect"
+                    className="select-field"
+                    value={brand._id}
+                    onChange={(event) =>
+                      setSelectedBrandId(event.target.value)
+                    }
+                  >
+                    {realBrands.map((item) => (
+                      <option key={item._id} value={item._id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
 
-                  {brand.preferredTerms.map((term) => (
-                    <span className="term-chip preferred" key={term}>
-                      <CheckCircle2 size={13} />
-                      {term}
-                    </span>
-                  ))}
+                  <h2>{brand.name}</h2>
+                  <p>{brand.description || "No description added."}</p>
 
-                  <p className="mini-section-title spaced">
-                    PROHIBITED TERMS
+                  <h3>Industry</h3>
+                  <p>{brand.industry || "Not specified"}</p>
+
+                  <h3>Website</h3>
+                  <p>{brand.website || "Not specified"}</p>
+
+                  <h3>Tone of voice</h3>
+                  <p>{brand.toneOfVoice || "Not specified"}</p>
+
+                  <h3>Brand guidelines</h3>
+                  <p>
+                    {brand.brandGuidelines || "No guidelines added."}
                   </p>
 
-                  {brand.bannedTerms.map((term) => (
-                    <span className="term-chip banned" key={term}>
-                      <X size={13} />
-                      {term}
-                    </span>
-                  ))}
+                  <h3>Approved facts</h3>
+                  {(brand.approvedFacts || []).length ? (
+                    <ul>
+                      {brand.approvedFacts.map((fact, index) => (
+                        <li key={index}>
+                          {typeof fact === "string" ? fact : fact.value}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No approved facts added.</p>
+                  )}
+
+                  <h3>Approved terminology</h3>
+                  {(brand.approvedTerminology || []).length ? (
+                    <ul>
+                      {brand.approvedTerminology.map((term) => (
+                        <li key={term}>{term}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No approved terminology added.</p>
+                  )}
+
+                  <h3>Prohibited phrases</h3>
+                  {(brand.prohibitedPhrases || []).length ? (
+                    <ul>
+                      {brand.prohibitedPhrases.map((term) => (
+                        <li key={term}>{term}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No prohibited phrases added.</p>
+                  )}
                 </section>
+              )}
 
-                <section className="panel tone-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h3>Brand guidelines & voice</h3>
-                      <p>Rules used by the prototype checker</p>
-                    </div>
-                    <Sparkles size={20} />
-                  </div>
-
-                  <ul className="brand-guidelines-list">
-                    {brand.guidelines.map((rule) => (
-                      <li key={rule}>{rule}</li>
-                    ))}
-                  </ul>
-
-                  <p className="mini-section-title">DESIRED TONE</p>
-
-                  <div className="tone-tags">
-                    {brand.tone.map((tone) => (
-                      <span key={tone}>{tone}</span>
-                    ))}
-                  </div>
-
-                  <p className="muted-copy">
-                    The checker uses these demo rules and terminology. It is
-                    not a full AI-based policy engine yet.
+              {!showBrandForm && !brand && (
+                <section className="panel empty-state">
+                  <Building2 size={32} />
+                  <h2>Your first Brand Kit starts here</h2>
+                  <p>
+                    Add your company details and guidelines to start
+                    reviewing content.
                   </p>
+                  <button
+                    className="primary-button"
+                    onClick={openBrandForm}
+                  >
+                    <Plus size={17} />
+                    Create Brand Kit
+                  </button>
                 </section>
-              </div>
+              )}
             </>
           )}
 
@@ -1228,44 +1554,25 @@ function App() {
                   <div className="eyebrow">YOUR ACTIVITY</div>
                   <h1>Review history</h1>
                   <p className="subheading">
-                    Review sessions stored in this browser session.
+                    Find and revisit your previous content reviews.
                   </p>
                 </div>
 
-                <button
-                  className="primary-button"
-                  onClick={startNewReview}
-                >
-                  <FileSearch size={17} />
-                  Start a review
-                </button>
+                <div className="search-box">
+                  <Search size={15} />
+                  <input
+                    value={search}
+                    onChange={(event) =>
+                      setSearch(event.target.value)
+                    }
+                    placeholder="Search reviews..."
+                  />
+                </div>
               </div>
 
               <section className="panel history-panel">
-                <div className="panel-heading">
-                  <div>
-                    <h3>All reviews</h3>
-                    <p>{history.length} reviews in this session</p>
-                  </div>
-
-                  <div className="search-box">
-                    <Search size={15} />
-                    <input
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Search reviews..."
-                    />
-                  </div>
-                </div>
-
                 {filteredHistory.length === 0 ? (
-                  <EmptyState
-                    icon={<History />}
-                    title="No matching reviews"
-                    text="Try another search or start a new review."
-                    action="Start a review"
-                    onClick={startNewReview}
-                  />
+                  <p>No matching reviews found.</p>
                 ) : (
                   filteredHistory.map((item) => (
                     <HistoryRow
@@ -1282,44 +1589,11 @@ function App() {
 
         <footer className="app-footer">
           <span>
-            <ShieldCheck size={15} /> BrandGuard{" "}
-            <span className="footer-dot">·</span> A friendly second pair of
-            eyes
-          </span>
-
-          <span>
-            Prototype v0.2 <span className="footer-dot">·</span> Human review
-            required
+            <ShieldCheck size={15} />
+            BrandGuard · Human review recommended
           </span>
         </footer>
       </main>
-    </div>
-  );
-}
-
-function StatCard({ icon, label, value, note, tone = "" }) {
-  return (
-    <div className="stat-card">
-      <div className={`stat-icon ${tone}`}>{icon}</div>
-      <span className="stat-label">{label}</span>
-      <strong className="stat-value">{value}</strong>
-      <span className="stat-note">{note}</span>
-    </div>
-  );
-}
-
-function EmptyState({ icon, title, text, action, onClick }) {
-  return (
-    <div className="empty-state">
-      <div className="empty-icon">{icon}</div>
-      <h3>{title}</h3>
-      <p>{text}</p>
-
-      {action && (
-        <button className="secondary-button" onClick={onClick}>
-          {action} <ArrowRight size={14} />
-        </button>
-      )}
     </div>
   );
 }
@@ -1328,18 +1602,24 @@ function HistoryRow({ item, onOpen }) {
   return (
     <div className="history-row">
       <div className="history-icon">
-        <FileText size={18} />
+        <History size={18} />
       </div>
 
       <div className="history-copy">
-        <strong>{item.preview || "Content review"}</strong>
+        <strong>
+          {item.title ||
+            item.content?.slice(0, 55) ||
+            "Content review"}
+        </strong>
         <span>
-          {item.brandName || "NovaTech"} · {item.date}
+          {item.brandName} · {item.date}
         </span>
       </div>
 
       <span
-        className={`finding-chip ${item.count ? "has-findings" : "clean"}`}
+        className={`finding-chip ${
+          item.count ? "has-findings" : "clean"
+        }`}
       >
         {item.count} findings
       </span>
@@ -1348,117 +1628,10 @@ function HistoryRow({ item, onOpen }) {
         className="history-open-button"
         onClick={() => onOpen(item)}
       >
-        <FileSearch size={14} /> View review
+        Open review
       </button>
     </div>
   );
 }
 
-function FindingCard({
-  finding,
-  editingId,
-  editText,
-  setEditText,
-  startEdit,
-  cancelEdit,
-  saveEdit,
-  updateStatus
-}) {
-  const resolved = finding.status !== "OPEN";
-
-  return (
-    <article
-      className={`finding-card ${resolved ? "finding-resolved" : ""}`}
-    >
-      <div className="finding-card-top">
-        <span className={`severity ${finding.severity.toLowerCase()}`}>
-          <AlertTriangle size={12} /> {finding.severity}
-        </span>
-
-        <span className="finding-category">{finding.category}</span>
-
-        {resolved && (
-          <span className="resolved-label">
-            {finding.status === "EDITED" ? "EDITED" : "RESOLVED"}
-          </span>
-        )}
-      </div>
-
-      <p className="original-label">FLAGGED CONTENT</p>
-      <p className="original-text">{finding.original}</p>
-      <p className="finding-reason">{finding.reason}</p>
-
-      <div className="source-line">
-        <Info size={13} />
-        <span>{finding.source}</span>
-      </div>
-
-      <div className="suggestion-box">
-        <span className="suggestion-label">
-          <Sparkles size={12} /> SUGGESTED IMPROVEMENT
-        </span>
-
-        {editingId === finding.id ? (
-          <>
-            <textarea
-              className="edit-textarea"
-              value={editText}
-              onChange={(event) => setEditText(event.target.value)}
-            />
-
-            <div className="finding-actions">
-              <button
-                className="action-button accept-action"
-                onClick={() => saveEdit(finding.id)}
-              >
-                <Check size={13} /> Save edit
-              </button>
-
-              <button className="action-button" onClick={cancelEdit}>
-                Cancel
-              </button>
-            </div>
-          </>
-        ) : (
-          <p>{finding.suggestion}</p>
-        )}
-      </div>
-
-      {editingId !== finding.id && (
-        <div className="finding-actions">
-          {!resolved && (
-            <>
-              <button
-                className="action-button accept-action"
-                onClick={() => updateStatus(finding.id, "RESOLVED")}
-              >
-                <Check size={13} /> Mark resolved
-              </button>
-
-              <button
-                className="action-button"
-                onClick={() => startEdit(finding)}
-              >
-                <Pencil size={13} /> Edit suggestion
-              </button>
-
-              <button
-                className="action-button dismiss-action"
-                onClick={() => updateStatus(finding.id, "DISMISSED")}
-              >
-                <X size={13} /> Dismiss
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </article>
-  );
-}
-
 export default App;
-
-
-
-
-      
