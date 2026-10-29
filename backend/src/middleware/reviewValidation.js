@@ -2,7 +2,11 @@
 const mongoose = require("mongoose");
 
 const validateCreateReview = (req, res, next) => {
-  const { title, description, brandId, findings } = req.body;
+  const { title, brandId, findings } = req.body;
+
+  // Accept either "content" or "description" from the frontend.
+  const description = req.body.content ?? req.body.description;
+
   const errors = [];
 
   if (typeof title !== "string" || !title.trim()) {
@@ -12,9 +16,9 @@ const validateCreateReview = (req, res, next) => {
   }
 
   if (typeof description !== "string" || !description.trim()) {
-    errors.push("Description is required and must be text.");
+    errors.push("Content is required and must be text.");
   } else if (description.length > 2000) {
-    errors.push("Description cannot exceed 2000 characters.");
+    errors.push("Content cannot exceed 2000 characters.");
   }
 
   if (
@@ -34,7 +38,11 @@ const validateCreateReview = (req, res, next) => {
     }
 
     findings.forEach((finding, index) => {
-      if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
+      if (
+        !finding ||
+        typeof finding !== "object" ||
+        Array.isArray(finding)
+      ) {
         errors.push(`Finding ${index + 1} must be an object.`);
         return;
       }
@@ -42,12 +50,16 @@ const validateCreateReview = (req, res, next) => {
       if (typeof finding.title !== "string" || !finding.title.trim()) {
         errors.push(`Finding ${index + 1} needs a title.`);
       } else if (finding.title.trim().length > 200) {
-        errors.push(`Finding ${index + 1} title cannot exceed 200 characters.`);
+        errors.push(
+          `Finding ${index + 1} title cannot exceed 200 characters.`
+        );
       }
 
       if (
         finding.severity !== undefined &&
-        !["critical", "high", "medium", "low"].includes(finding.severity)
+        !["critical", "high", "medium", "low"].includes(
+          finding.severity
+        )
       ) {
         errors.push(`Finding ${index + 1} has an invalid severity.`);
       }
@@ -56,7 +68,9 @@ const validateCreateReview = (req, res, next) => {
         finding.recommendation !== undefined &&
         typeof finding.recommendation !== "string"
       ) {
-        errors.push(`Finding ${index + 1} recommendation must be text.`);
+        errors.push(
+          `Finding ${index + 1} recommendation must be text.`
+        );
       }
     });
   }
@@ -68,6 +82,9 @@ const validateCreateReview = (req, res, next) => {
       errors,
     });
   }
+
+  // Make the validated description available to the controller.
+  req.body.description = description;
 
   next();
 };
@@ -87,13 +104,43 @@ const validateReviewStatus = (req, res, next) => {
 };
 
 const validateFindingStatus = (req, res, next) => {
-  const { status } = req.body;
+  const { status, recommendation } = req.body;
   const allowedStatuses = ["open", "resolved", "accepted"];
+  const errors = [];
 
-  if (typeof status !== "string" || !allowedStatuses.includes(status)) {
+  // Validate status only when a status update is provided.
+  if (status !== undefined) {
+    if (
+      typeof status !== "string" ||
+      !allowedStatuses.includes(status)
+    ) {
+      errors.push(
+        "Finding status must be open, resolved, or accepted."
+      );
+    }
+  }
+
+  // Validate an edited suggestion when provided.
+  if (recommendation !== undefined) {
+    if (typeof recommendation !== "string") {
+      errors.push("Recommendation must be text.");
+    } else if (!recommendation.trim()) {
+      errors.push("Recommendation cannot be empty.");
+    } else if (recommendation.length > 2000) {
+      errors.push("Recommendation cannot exceed 2000 characters.");
+    }
+  }
+
+  // Require at least one valid field to update.
+  if (status === undefined && recommendation === undefined) {
+    errors.push("Provide a status or an edited recommendation.");
+  }
+
+  if (errors.length > 0) {
     return res.status(400).json({
       success: false,
-      message: "Finding status must be open, resolved, or accepted.",
+      message: errors[0],
+      errors,
     });
   }
 

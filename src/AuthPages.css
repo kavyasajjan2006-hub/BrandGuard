@@ -36,7 +36,8 @@
   border-radius: 50%;
   right: -170px;
   bottom: 70px;
-  box-shadow: 0 0 0 45px rgba(232, 239, 213, 0.035),
+  box-shadow:
+    0 0 0 45px rgba(232, 239, 213, 0.035),
     0 0 0 90px rgba(232, 239, 213, 0.025);
   pointer-events: none;
 }
@@ -94,6 +95,7 @@
   letter-spacing: -2px;
   margin: 0 0 20px;
   font-weight: 700;
+  color: #fffdf5;
 }
 
 .auth-brand-message > p {

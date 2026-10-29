@@ -1648,3 +1648,186 @@ h1 span {
     grid-template-columns: 1fr;
   }
 }
+
+
+
+.success-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid #a7dfbd;
+  border-radius: 8px;
+  color: #17683a;
+  background: #effbf3;
+}
+
+.compliance-details {
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid #dce5e0;
+  border-radius: 12px;
+  background: #f7faf8;
+}
+
+.compliance-details h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.compliance-details p {
+  line-height: 1.6;
+}
+
+.compliance-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.compliance-count-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #e1e8e4;
+  border-radius: 8px;
+  background: white;
+  text-transform: capitalize;
+}
+
+.finding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0 16px;
+}
+
+.upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.uploaded-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+
+
+/* Finding action buttons */
+.finding-card {
+  padding: 24px;
+}
+
+.finding-card button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 10px 16px;
+  margin: 8px 10px 4px 0;
+  border: 1px solid #d7e1da;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #254b38;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.finding-card button:hover {
+  background: #f0f6f1;
+  border-color: #8aa996;
+  box-shadow: 0 2px 6px rgba(28, 63, 43, 0.08);
+}
+
+.finding-card button:focus-visible {
+  outline: 3px solid rgba(55, 112, 77, 0.25);
+  outline-offset: 2px;
+}
+
+.finding-card button:active {
+  transform: translateY(1px);
+}
+
+/* Suggestion editor */
+.suggestion-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 16px 0 20px;
+  padding: 18px;
+  border: 1px solid #dce6de;
+  border-radius: 12px;
+  background: #f8faf7;
+}
+
+.suggestion-editor textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100px;
+  padding: 12px 14px;
+  border: 1px solid #cbd8ce;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #24372b;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.suggestion-editor textarea:focus {
+  outline: none;
+  border-color: #47795a;
+  box-shadow: 0 0 0 3px rgba(71, 121, 90, 0.12);
+}
+
+/* Keep editor actions neatly spaced */
+.suggestion-editor button {
+  margin: 0 8px 0 0;
+}
+
+/* Smaller screens */
+@media (max-width: 600px) {
+  .finding-card {
+    padding: 18px;
+  }
+
+  .finding-card button {
+    margin-right: 6px;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+  }
+
+  .suggestion-editor {
+    padding: 14px;
+  }
+}

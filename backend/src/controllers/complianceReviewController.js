@@ -1,4 +1,5 @@
 
+const { checkCompliance } = require("../utils/complianceChecker");
 const mongoose = require("mongoose");
 const fs = require("fs/promises");
 const path = require("path");
@@ -18,10 +19,6 @@ function validId(id) {
   return mongoose.Types.ObjectId.isValid(id);
 }
 
-function isOwner(review, userId) {
-  return review.createdBy.toString() === userId.toString();
-}
-
 async function removeUploadedFiles(files = []) {
   await Promise.all(
     files.map((file) => fs.unlink(file.path).catch(() => {}))
@@ -39,25 +36,18 @@ function evidenceMetadata(file) {
 }
 
 function escapeHtml(value = "") {
-  return String(value).replace(/[&<>"']/g, (character) => {
-    const entities = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-
-    return entities[character];
-  });
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
 }
 
 async function sendReviewNotification(user, subject, message) {
   try {
-    if (!user || !user.email) {
-      console.warn("Email notification skipped: user email unavailable.");
-      return;
-    }
+    if (!user?.email) return;
 
     await sendEmail({
       to: user.email,
@@ -71,20 +61,63 @@ async function sendReviewNotification(user, subject, message) {
         </div>
       `,
     });
-
-    console.log(`BrandGuard notification sent to ${user.email}`);
   } catch (error) {
-    console.error(
-      "BrandGuard email notification failed:",
-      error.message
-    );
+    console.error("Email notification failed:", error.message);
   }
 }
 
-// CREATE REVIEW
+function normalizeSeverity(value) {
+  const severity = String(value || "medium").toLowerCase();
+
+  return ["critical", "high", "medium", "low"].includes(severity)
+    ? severity
+    : "medium";
+}
+
+function normalizeEngineFinding(finding = {}) {
+  return {
+    title: finding.title || finding.type || "Compliance issue",
+    description:
+      finding.explanation ||
+      finding.description ||
+      finding.message ||
+      "",
+    severity: normalizeSeverity(finding.severity),
+    recommendation:
+      finding.suggestedFix ||
+      finding.recommendation ||
+      finding.suggestion ||
+      "Review this issue manually.",
+    status: "open",
+  };
+}
+
+function countFindings(findings = []) {
+  const counts = {
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+  };
+
+  for (const finding of findings) {
+    counts[normalizeSeverity(finding.severity)]++;
+  }
+
+  return counts;
+}
+
+// CREATE REVIEW AND RUN BOTH COMPLIANCE ENGINES.
 async function createReview(req, res, next) {
   try {
-    const { brandId, title, description } = req.body;
+   const {
+  brandId,
+  title,
+  description: submittedDescription,
+  content: submittedContent,
+} = req.body;
+
+const description = submittedDescription ?? submittedContent;
 
     if (
       !brandId ||
@@ -106,7 +139,6 @@ async function createReview(req, res, next) {
       });
     }
 
-    // Only allow users to review content for their own brands.
     const brand = await Brand.findOne({
       _id: brandId,
       createdBy: req.user._id,
@@ -119,28 +151,65 @@ async function createReview(req, res, next) {
       });
     }
 
-    // Run the centralized compliance engine.
-    const complianceResult = reviewContent({
-      content: description.trim(),
-      brand,
-    });
+    const content = description.trim();
 
-    // Map engine findings to the existing Mongoose finding schema.
-    const generatedFindings = (
-      complianceResult.findings || []
-    ).map((finding) => ({
-      title: finding.title,
-      description: finding.explanation,
-      severity: finding.severity,
-      recommendation: finding.suggestedFix,
+    // Run both compliance engines.
+    const [existingResultRaw, checkerResultRaw] = await Promise.all([
+      Promise.resolve(reviewContent({ content, brand })),
+      Promise.resolve(checkCompliance(content, brand)),
+    ]);
+
+    const existingResult = existingResultRaw || {};
+    const checkerResult = checkerResultRaw || {};
+
+    const existingFindings = (
+      existingResult.findings || []
+    ).map(normalizeEngineFinding);
+
+    const checkerIssues = (
+      checkerResult.issues || []
+    ).map((issue) => ({
+      title: issue.type
+        ? String(issue.type).replace(/_/g, " ")
+        : "Compliance issue",
+      description: issue.message || issue.description || "",
+      severity: normalizeSeverity(issue.severity),
+      recommendation:
+        issue.suggestion ||
+        issue.recommendation ||
+        "Review this issue manually.",
       status: "open",
     }));
 
+    // Combine findings from both engines and remove exact duplicates.
+    const seen = new Set();
+
+    const generatedFindings = [
+      ...existingFindings,
+      ...checkerIssues,
+    ].filter((finding) => {
+      const key = [
+        finding.title,
+        finding.description,
+        finding.recommendation,
+        finding.severity,
+      ]
+        .join("|")
+        .toLowerCase()
+        .trim();
+
+      if (seen.has(key)) return false;
+
+      seen.add(key);
+      return true;
+    });
+
+    // Save the review. The model calculates score and risk level.
     const review = await ComplianceReview.create({
       brand: brand._id,
       createdBy: req.user._id,
       title: title.trim(),
-      description: description.trim(),
+      description: content,
       findings: generatedFindings,
     });
 
@@ -154,26 +223,57 @@ async function createReview(req, res, next) {
       }" has been created successfully.`
     );
 
+    // Calculate all displayed totals from the saved findings.
+    const savedFindings = review.findings || [];
+    const findingCounts = countFindings(savedFindings);
+    const totalFindings = savedFindings.length;
+
+    const checkerCounts = countFindings(checkerIssues);
+
+    const summary =
+      `Found ${totalFindings} finding(s): ` +
+      `${findingCounts.critical} critical, ` +
+      `${findingCounts.high} high, ` +
+      `${findingCounts.medium} medium, ` +
+      `${findingCounts.low} low.`;
+
     return res.status(201).json({
       success: true,
       message: "Compliance review created successfully.",
       review,
+
       compliance: {
-  score: review.overallScore,
-  riskLevel: review.riskLevel,
-  issueCount: review.findings.length,
-  summary: complianceResult.reviewSummary,
-},
+        score: review.overallScore,
+        checkerScore: review.overallScore,
+        riskLevel: review.riskLevel,
+
+        issueCount: totalFindings,
+        totalFindings,
+
+        summary,
+        counts: findingCounts,
+        findingCounts,
+
+        // Separate checker information for debugging.
+        checkerIssueCount: checkerIssues.length,
+        checkerCounts,
+
+        // The dashboard can use these findings.
+        issues: savedFindings,
+        checkerIssues,
+      },
     });
   } catch (error) {
     next(error);
   }
 }
 
-// GET THE SIGNED-IN USER'S REVIEWS
+// GET SIGNED-IN USER'S REVIEWS.
 async function getMyReviews(req, res, next) {
   try {
-    const filter = { createdBy: req.user._id };
+    const filter = {
+      createdBy: req.user._id,
+    };
 
     if (req.query.brandId) {
       if (!validId(req.query.brandId)) {
@@ -200,7 +300,7 @@ async function getMyReviews(req, res, next) {
   }
 }
 
-// UPDATE REVIEW STATUS
+// UPDATE REVIEW STATUS.
 async function updateReviewStatus(req, res, next) {
   try {
     const { reviewId } = req.params;
@@ -213,9 +313,7 @@ async function updateReviewStatus(req, res, next) {
       });
     }
 
-    const allowedStatuses = ["draft", "in_progress", "completed"];
-
-    if (!allowedStatuses.includes(status)) {
+    if (!["draft", "in_progress", "completed"].includes(status)) {
       return res.status(400).json({
         success: false,
         message: "Status must be draft, in_progress, or completed.",
@@ -238,7 +336,7 @@ async function updateReviewStatus(req, res, next) {
 
     review.status = status;
     review.reviewedAt =
-      status === "completed" ? new Date() : undefined;
+      status === "completed" ? new Date() : null;
 
     await review.save();
 
@@ -262,11 +360,11 @@ async function updateReviewStatus(req, res, next) {
   }
 }
 
-// UPDATE A FINDING'S STATUS
+// UPDATE FINDING STATUS OR EDIT ITS SUGGESTED FIX.
 async function updateFindingStatus(req, res, next) {
   try {
     const { reviewId, findingId } = req.params;
-    const { status } = req.body;
+    const { status, recommendation } = req.body;
 
     if (!validId(reviewId) || !validId(findingId)) {
       return res.status(400).json({
@@ -275,10 +373,30 @@ async function updateFindingStatus(req, res, next) {
       });
     }
 
-    if (!["open", "resolved", "accepted"].includes(status)) {
+    if (
+      status !== undefined &&
+      !["open", "resolved", "accepted"].includes(status)
+    ) {
       return res.status(400).json({
         success: false,
         message: "Status must be open, resolved, or accepted.",
+      });
+    }
+
+    if (
+      recommendation !== undefined &&
+      typeof recommendation !== "string"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Recommendation must be text.",
+      });
+    }
+
+    if (status === undefined && recommendation === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide a status or an edited recommendation.",
       });
     }
 
@@ -303,22 +421,30 @@ async function updateFindingStatus(req, res, next) {
       });
     }
 
-    finding.status = status;
+    if (status !== undefined) {
+      finding.status = status;
+    }
+
+    if (recommendation !== undefined) {
+      finding.recommendation = recommendation.trim();
+    }
+
     await review.save();
 
     return res.status(200).json({
       success: true,
-      message: "Finding status updated successfully.",
+      message: "Finding updated successfully.",
       finding,
       score: review.overallScore,
       riskLevel: review.riskLevel,
+      findingsCount: review.findings.length,
     });
   } catch (error) {
     next(error);
   }
 }
 
-// GET A REVIEW'S SCORE
+// GET REVIEW SCORE.
 async function getReviewScore(req, res, next) {
   try {
     const { reviewId } = req.params;
@@ -354,7 +480,7 @@ async function getReviewScore(req, res, next) {
   }
 }
 
-// DASHBOARD STATISTICS
+// DASHBOARD STATISTICS.
 async function getDashboardStats(req, res, next) {
   try {
     const reviews = await ComplianceReview.find({
@@ -389,13 +515,10 @@ async function getDashboardStats(req, res, next) {
         (finding) => finding.status !== "resolved"
       ).length;
 
-      if (
-        Object.prototype.hasOwnProperty.call(
-          riskCounts,
-          review.riskLevel
-        )
-      ) {
-        riskCounts[review.riskLevel]++;
+      const risk = String(review.riskLevel || "").toLowerCase();
+
+      if (Object.prototype.hasOwnProperty.call(riskCounts, risk)) {
+        riskCounts[risk]++;
       }
     }
 
@@ -414,13 +537,14 @@ async function getDashboardStats(req, res, next) {
   }
 }
 
-// UPLOAD EVIDENCE
+// UPLOAD EVIDENCE.
 async function uploadReviewEvidence(req, res, next) {
   try {
     const { reviewId } = req.params;
 
     if (!validId(reviewId)) {
       await removeUploadedFiles(req.files);
+
       return res.status(400).json({
         success: false,
         message: "Invalid review ID.",
@@ -434,6 +558,7 @@ async function uploadReviewEvidence(req, res, next) {
 
     if (!review) {
       await removeUploadedFiles(req.files);
+
       return res.status(404).json({
         success: false,
         message: "Review not found.",
@@ -448,6 +573,7 @@ async function uploadReviewEvidence(req, res, next) {
     }
 
     const newEvidence = req.files.map(evidenceMetadata);
+
     review.evidence.push(...newEvidence);
 
     try {
@@ -467,7 +593,7 @@ async function uploadReviewEvidence(req, res, next) {
   }
 }
 
-// DOWNLOAD EVIDENCE
+// DOWNLOAD EVIDENCE.
 async function downloadReviewEvidence(req, res, next) {
   try {
     const { reviewId, evidenceId } = req.params;
@@ -501,7 +627,10 @@ async function downloadReviewEvidence(req, res, next) {
     }
 
     const safeStoredName = path.basename(evidence.storedName);
-    const filePath = path.resolve(evidenceDirectory, safeStoredName);
+    const filePath = path.resolve(
+      evidenceDirectory,
+      safeStoredName
+    );
 
     if (!filePath.startsWith(evidenceDirectory + path.sep)) {
       return res.status(400).json({
@@ -519,20 +648,24 @@ async function downloadReviewEvidence(req, res, next) {
       });
     }
 
-    return res.download(filePath, evidence.originalName, (error) => {
-      if (error && !res.headersSent) {
-        res.status(500).json({
-          success: false,
-          message: "Unable to download evidence.",
-        });
+    return res.download(
+      filePath,
+      evidence.originalName,
+      (error) => {
+        if (error && !res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: "Unable to download evidence.",
+          });
+        }
       }
-    });
+    );
   } catch (error) {
     next(error);
   }
 }
 
-// DELETE EVIDENCE
+// DELETE EVIDENCE.
 async function deleteReviewEvidence(req, res, next) {
   try {
     const { reviewId, evidenceId } = req.params;
@@ -566,7 +699,10 @@ async function deleteReviewEvidence(req, res, next) {
     }
 
     const storedName = path.basename(evidence.storedName);
-    const filePath = path.resolve(evidenceDirectory, storedName);
+    const filePath = path.resolve(
+      evidenceDirectory,
+      storedName
+    );
 
     if (!filePath.startsWith(evidenceDirectory + path.sep)) {
       return res.status(400).json({

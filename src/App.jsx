@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from "react";
 import {
   ShieldCheck,
@@ -71,6 +70,23 @@ function normalizeBrand(item) {
   };
 }
 
+function deduplicateBrands(brands) {
+  const seenNames = new Set();
+
+  return brands.filter((item) => {
+    const normalizedName = String(item.name || "")
+      .trim()
+      .toLowerCase();
+
+    if (!normalizedName || seenNames.has(normalizedName)) {
+      return false;
+    }
+
+    seenNames.add(normalizedName);
+    return true;
+  });
+}
+
 function normalizeFinding(item, index) {
   return {
     id: item._id || `${Date.now()}-${index}`,
@@ -123,28 +139,107 @@ function parseLines(value) {
 }
 
 function App() {
-  const [authPage, setAuthPage] = useState(() => {
+  
+
+async function downloadComplianceReport(reviewId) {
   const token = localStorage.getItem("hackguard_token");
- 
-  const user = localStorage.getItem("hackguard_user");
 
-  return token && user ? "dashboard" : "login";
-});
-  const [page, setPage] = useState("Overview");
+  setReviewError("");
 
-const [realBrands, setRealBrands] = useState([]);
-const [selectedBrandId, setSelectedBrandId] = useState(
-  () => localStorage.getItem("brandguard_selected_brand") || ""
-);
-useEffect(() => {
-  if (selectedBrandId) {
-    localStorage.setItem("brandguard_selected_brand", selectedBrandId);
+  if (!token) {
+    setReviewError("Please log in again.");
+    setAuthPage("login");
+    return;
   }
-}, [selectedBrandId]);
-const [brandsLoading, setBrandsLoading] = useState(false);
-const [brandsError, setBrandsError] = useState("");
+
+  if (!reviewId) {
+    setReviewError("Review ID is missing. Check the history item ID.");
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `${API_URL}/reviews/${reviewId}/report/pdf`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    const contentType = response.headers.get("content-type") || "";
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let message = errorText;
+
+      try {
+        const errorData = JSON.parse(errorText);
+        message = errorData.message || errorData.error || errorText;
+      } catch {
+        // Keep the original error text.
+      }
+
+      throw new Error(
+        `Download failed (${response.status}): ${message}`
+      );
+    }
+
+    if (!contentType.includes("application/pdf")) {
+      const responseText = await response.text();
+      throw new Error(
+        `The server did not return a PDF. Response: ${responseText.slice(0, 200)}`
+      );
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `BrandGuard-Report-${reviewId}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    // Give the browser time to start downloading.
+    window.setTimeout(() => {
+      window.URL.revokeObjectURL(url);
+    }, 1000);
+  } catch (error) {
+    console.error("PDF download error:", error);
+    setReviewError(error.message || "Report download failed.");
+  }
+}
 
 
+  const [authPage, setAuthPage] = useState(() => {
+    const token = localStorage.getItem("hackguard_token");
+    const user = localStorage.getItem("hackguard_user");
+
+    return token && user ? "dashboard" : "login";
+  });
+
+  const [page, setPage] = useState("Overview");
+  const [realBrands, setRealBrands] = useState([]);
+
+  const [selectedBrandId, setSelectedBrandId] = useState(
+    () => localStorage.getItem("brandguard_selected_brand") || ""
+  );
+
+  useEffect(() => {
+    if (selectedBrandId) {
+      localStorage.setItem(
+        "brandguard_selected_brand",
+        selectedBrandId
+      );
+    }
+  }, [selectedBrandId]);
+
+  const [brandsLoading, setBrandsLoading] = useState(false);
+  const [brandsError, setBrandsError] = useState("");
+  const [isReviewing, setIsReviewing] = useState(false);
   const [showBrandForm, setShowBrandForm] = useState(false);
   const [brandForm, setBrandForm] = useState(EMPTY_BRAND_FORM);
   const [brandSaving, setBrandSaving] = useState(false);
@@ -155,21 +250,27 @@ const [brandsError, setBrandsError] = useState("");
   const [title, setTitle] = useState(
     "Content compliance review"
   );
+
   const [findings, setFindings] = useState([]);
-const [history, setHistory] = useState([]);
-const [search, setSearch] = useState("");
-const [reviewed, setReviewed] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [editingFindingId, setEditingFindingId] = useState(null);
+const [editedSuggestion, setEditedSuggestion] = useState("");
 
-// NEW: Store the compliance score and risk level
-const [complianceScore, setComplianceScore] = useState(null);
-const [riskLevel, setRiskLevel] = useState("");
+  const [search, setSearch] = useState("");
+  const [reviewed, setReviewed] = useState(false);
 
-const [reviewLoading, setReviewLoading] = useState(false);
-const [reviewError, setReviewError] = useState("");
+  const [complianceScore, setComplianceScore] = useState(null);
+  const [complianceAnalysis, setComplianceAnalysis] = useState(null);
+  const [complianceSummary, setComplianceSummary] = useState("");
+  const [complianceCounts, setComplianceCounts] = useState({});
+  const [riskLevel, setRiskLevel] = useState("");
 
-const [uploadError, setUploadError] = useState("");
-const [isUploading, setIsUploading] = useState(false);
-const [uploadedFileName, setUploadedFileName] = useState("");
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState("");
+
+  const [uploadError, setUploadError] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState("");
 
   const token = localStorage.getItem("hackguard_token");
 
@@ -177,6 +278,8 @@ const [uploadedFileName, setUploadedFileName] = useState("");
     realBrands.find((item) => item._id === selectedBrandId) ||
     realBrands[0] ||
     null;
+
+
 
   // Load saved brand kits after login.
   useEffect(() => {
@@ -212,33 +315,37 @@ const [uploadedFileName, setUploadedFileName] = useState("");
           );
         }
 
-        const brands = (data.brands || []).map(normalizeBrand);
+        const brands = deduplicateBrands(
+          (data.brands || []).map(normalizeBrand)
+        );
 
         if (!cancelled) {
           setRealBrands(brands);
 
-setSelectedBrandId((currentId) => {
-  const selectedId = brands.some(
-    (item) => item._id === currentId
-  )
-    ? currentId
-    : brands[0]?._id || "";
+          setSelectedBrandId((currentId) => {
+            const selectedId = brands.some(
+              (item) => item._id === currentId
+            )
+              ? currentId
+              : brands[0]?._id || "";
 
-  if (selectedId) {
-    localStorage.setItem("brandguard_selected_brand", selectedId);
-  } else {
-    localStorage.removeItem("brandguard_selected_brand");
-  }
+            if (selectedId) {
+              localStorage.setItem(
+                "brandguard_selected_brand",
+                selectedId
+              );
+            } else {
+              localStorage.removeItem(
+                "brandguard_selected_brand"
+              );
+            }
 
-  return selectedId;
-});
-
+            return selectedId;
+          });
         }
       } catch (error) {
         if (!cancelled) {
-          setBrandsError(
-            error.message || "Could not load brand kits."
-          );
+          setBrandsError(error.message);
         }
       } finally {
         if (!cancelled) {
@@ -254,7 +361,7 @@ setSelectedBrandId((currentId) => {
     };
   }, [authPage]);
 
-  // Load previously saved reviews.
+    // Load previously saved reviews.
   async function loadHistory() {
     const savedToken =
       localStorage.getItem("hackguard_token");
@@ -291,7 +398,7 @@ setSelectedBrandId((currentId) => {
     if (authPage === "dashboard" && token) {
       loadHistory();
     }
-  }, [authPage,token]);
+  }, [authPage, token]);
 
   // Update a field in the Create Brand Kit form.
   function handleBrandFormChange(event) {
@@ -385,12 +492,17 @@ setSelectedBrandId((currentId) => {
 
       const normalized = normalizeBrand(createdBrand);
 
-      setRealBrands((previous) => [
-        normalized,
-        ...previous.filter(
-          (item) => item._id !== normalized._id
-        ),
-      ]);
+      setRealBrands((previous) =>
+        deduplicateBrands([
+          normalized,
+          ...previous.filter(
+            (item) =>
+              item._id !== normalized._id &&
+              item.name?.trim().toLowerCase() !==
+                normalized.name?.trim().toLowerCase()
+          ),
+        ])
+      );
 
       setSelectedBrandId(normalized._id);
       setBrandForm(EMPTY_BRAND_FORM);
@@ -470,10 +582,13 @@ setSelectedBrandId((currentId) => {
     setUploadError("");
     setReviewError("");
     setComplianceScore(null);
+    setComplianceAnalysis(null);
+    setComplianceSummary("");
+    setComplianceCounts({});
     setRiskLevel("");
   }
 
-  // Submit the editor content for review.
+  // Submit content and display the backend compliance analysis.
   async function runReview() {
     const savedToken =
       localStorage.getItem("hackguard_token");
@@ -498,83 +613,120 @@ setSelectedBrandId((currentId) => {
 
     if (!content.trim()) {
       setReviewError(
-        "Please upload a file, use the demo sample, or enter content."
+        "Enter some content or upload a supported text file first."
       );
       return;
     }
 
-    setReviewLoading(true);
+    setIsReviewing(true);
+    setReviewed(false);
+    setFindings([]);
+    setComplianceScore(null);
+    setComplianceAnalysis(null);
+    setComplianceSummary("");
+    setComplianceCounts({});
+    setRiskLevel("");
 
     try {
-      const response = await fetch(`${API_URL}/reviews`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${savedToken}`,
-        },
-        body: JSON.stringify({
-          brandId: brand._id,
-          title: title.trim() || "Content compliance review",
-          description: content.trim(),
-        }),
-      });
+      const response = await fetch(
+        `${API_URL}/reviews`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${savedToken}`,
+          },
+          body: JSON.stringify({
+            title: title.trim() || "Untitled Review",
+            content: content.trim(),
+            brandId: brand._id,
+          }),
+        }
+      );
 
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.message || "Review creation failed."
+          data.message || "The content review failed."
         );
       }
 
-      const createdReview =
+      const savedReview =
         data.review ||
         data.data?.review ||
-        data.data;
+        data;
 
-      if (!createdReview || !createdReview._id) {
-        throw new Error(
-          "The review could not be loaded. Please try again."
-        );
-      }
+      const compliance =
+        data.compliance ||
+        data.data?.compliance ||
+        savedReview.compliance ||
+        {};
 
-      const review = normalizeReview({
-        ...createdReview,
-        brand: createdReview.brand || brand,
-        description:
-          createdReview.description || content.trim(),
-        title:
-          createdReview.title ||
-          title ||
-          "Content compliance review",
+      const normalizedReview = normalizeReview({
+        ...savedReview,
+        ...compliance,
+        findings:
+          compliance.findings ||
+          compliance.issues ||
+          savedReview.findings ||
+          savedReview.issues ||
+          [],
       });
 
-      review.brandId = brand._id;
-      review.brandName = brand.name;
+      const reviewFindings =
+        normalizedReview.findings || [];
 
-      setFindings(review.findings);
-      setComplianceScore(review.overallScore);
-      setRiskLevel(review.riskLevel);
+      setFindings(reviewFindings);
 
-      setHistory((old) => [
-        review,
-        ...old.filter((item) => item.id !== review.id),
-      ]);
+      const score =
+        compliance.score ??
+        compliance.complianceScore ??
+        savedReview.complianceScore ??
+        savedReview.overallScore ??
+        null;
+
+      setComplianceScore(
+        score === null ? null : Number(score)
+      );
+
+      setRiskLevel(
+        compliance.riskLevel ||
+        savedReview.riskLevel ||
+        ""
+      );
+
+      setComplianceSummary(
+        compliance.summary ||
+        compliance.reviewSummary ||
+        savedReview.reviewSummary ||
+        ""
+      );
+
+      setComplianceCounts(
+        compliance.counts ||
+        compliance.findingCounts ||
+        savedReview.findingCounts ||
+        {}
+      );
+
+      setComplianceAnalysis(compliance);
       setReviewed(true);
-      setPage("Content review");
+
+      await loadHistory();
     } catch (error) {
       setReviewError(
-        error.message || "Could not create the review."
+        error.message || "Could not complete the review."
       );
     } finally {
-      setReviewLoading(false);
+      setIsReviewing(false);
     }
   }
 
-  // Update a finding's status.
+  // Update a finding's status and refresh the compliance score.
   async function changeFindingStatus(findingId, status) {
     const review = history.find((item) =>
-      item.findings.some(
+      item.findings?.some(
         (finding) => finding.id === findingId
       )
     );
@@ -591,10 +743,15 @@ setSelectedBrandId((currentId) => {
 
     if (!savedToken) {
       setReviewError("Please log in again.");
+      setAuthPage("login");
       return;
     }
 
     try {
+      setReviewError("");
+
+      const normalizedStatus = status.toUpperCase();
+
       const response = await fetch(
         `${API_URL}/reviews/${review.id}/findings/${findingId}`,
         {
@@ -604,7 +761,7 @@ setSelectedBrandId((currentId) => {
             Authorization: `Bearer ${savedToken}`,
           },
           body: JSON.stringify({
-            status: status.toLowerCase(),
+            status: normalizedStatus.toLowerCase(),
           }),
         }
       );
@@ -617,33 +774,66 @@ setSelectedBrandId((currentId) => {
         );
       }
 
-      setFindings((old) =>
-        old.map((item) =>
-          item.id === findingId
-            ? { ...item, status: status.toUpperCase() }
-            : item
-        )
+      const updateFinding = (finding) =>
+        finding.id === findingId
+          ? { ...finding, status: normalizedStatus }
+          : finding;
+
+      setFindings((previous) =>
+        previous.map(updateFinding)
       );
 
-      setHistory((old) =>
-        old.map((item) =>
+      setHistory((previous) =>
+        previous.map((item) =>
           item.id === review.id
             ? {
                 ...item,
-                findings: item.findings.map((finding) =>
-                  finding.id === findingId
-                    ? {
-                        ...finding,
-                        status: status.toUpperCase(),
-                      }
-                    : finding
-                ),
+                findings: item.findings.map(updateFinding),
               }
             : item
         )
       );
 
-      setReviewError("");
+      // Refresh the score after the status changes.
+      const scoreResponse = await fetch(
+        `${API_URL}/reviews/${review.id}/score`,
+        {
+          headers: {
+            Authorization: `Bearer ${savedToken}`,
+          },
+        }
+      );
+
+      const scoreData = await scoreResponse.json();
+
+      if (!scoreResponse.ok) {
+        throw new Error(
+          scoreData.message ||
+            "The status changed, but the score could not be refreshed."
+        );
+      }
+
+      if (scoreData.success) {
+        const updatedScore = Number(scoreData.score);
+
+        setComplianceScore(updatedScore);
+        setRiskLevel(scoreData.riskLevel || "");
+
+        setHistory((previous) =>
+          previous.map((item) =>
+            item.id === review.id
+              ? {
+                  ...item,
+                  overallScore: updatedScore,
+                  riskLevel: scoreData.riskLevel || item.riskLevel,
+                }
+              : item
+          )
+        );
+      }
+
+      // Refresh the review history from the server.
+      await loadHistory();
     } catch (error) {
       setReviewError(
         error.message || "Could not update the finding."
@@ -651,6 +841,97 @@ setSelectedBrandId((currentId) => {
     }
   }
 
+
+async function updateFindingSuggestion(findingId, suggestion) {
+  const normalizedFindingId = String(findingId);
+  const updatedSuggestion = suggestion.trim();
+
+  if (!updatedSuggestion) {
+    setReviewError("Suggestion cannot be empty.");
+    return false;
+  }
+
+  const review = history.find((item) =>
+    item.findings?.some(
+      (finding) => String(finding.id) === normalizedFindingId
+    )
+  );
+
+  if (!review) {
+    setReviewError("Review not found. Refresh the review history.");
+    return false;
+  }
+
+  const savedToken = localStorage.getItem("hackguard_token");
+
+  if (!savedToken) {
+    setReviewError("Please log in again.");
+    setAuthPage("login");
+    return false;
+  }
+
+  try {
+    setReviewError("");
+
+    const response = await fetch(
+      `${API_URL}/reviews/${review.id}/findings/${normalizedFindingId}`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${savedToken}`,
+        },
+        body: JSON.stringify({
+          recommendation: updatedSuggestion,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(
+        data.message || "Could not save the suggested fix."
+      );
+    }
+
+    const savedRecommendation =
+      data.finding?.recommendation ?? updatedSuggestion;
+
+    const updateFinding = (finding) =>
+      String(finding.id) === normalizedFindingId
+        ? { ...finding, suggestion: savedRecommendation }
+        : finding;
+
+    setFindings((previous) =>
+      previous.map(updateFinding)
+    );
+
+    setHistory((previous) =>
+      previous.map((item) =>
+        String(item.id) === String(review.id)
+          ? {
+              ...item,
+              findings: item.findings.map(updateFinding),
+            }
+          : item
+      )
+    );
+
+    await loadHistory();
+
+    return true;
+  } catch (error) {
+    console.error("Saving suggestion failed:", error);
+    setReviewError(
+      error.message || "Could not save the suggested fix."
+    );
+    return false;
+  }
+}
+
+
+  // Open an existing review from the history page.
   function openReview(review) {
     setTitle(review.title || "Content compliance review");
     setContent(review.content || "");
@@ -658,25 +939,54 @@ setSelectedBrandId((currentId) => {
     setSelectedBrandId(review.brandId || "");
     setUploadedFileName("");
     setReviewed(true);
+
+    setComplianceScore(
+      review.overallScore ??
+        review.complianceScore ??
+        null
+    );
+
+    setRiskLevel(review.riskLevel || "");
+
+    setComplianceSummary(
+      review.complianceSummary ||
+        review.reviewSummary ||
+        ""
+    );
+
+    setComplianceCounts(
+      review.complianceCounts ||
+        review.findingCounts ||
+        {}
+    );
+
     setReviewError("");
     setUploadError("");
     setPage("Content review");
   }
 
+  // Start a clean review without deleting saved reviews.
   function startNewReview() {
     setTitle("Content compliance review");
     setContent("");
     setFindings([]);
     setReviewed(false);
+    setComplianceScore(null);
+    setComplianceAnalysis(null);
+    setComplianceSummary("");
+    setComplianceCounts({});
+    setRiskLevel("");
     setReviewError("");
     setUploadError("");
     setUploadedFileName("");
     setPage("Content review");
   }
 
+  // Log out and clear session-specific information.
   function logout() {
     localStorage.removeItem("hackguard_token");
     localStorage.removeItem("hackguard_user");
+    localStorage.removeItem("brandguard_selected_brand");
 
     setRealBrands([]);
     setSelectedBrandId("");
@@ -691,9 +1001,15 @@ setSelectedBrandId((currentId) => {
     setBrandForm(EMPTY_BRAND_FORM);
     setBrandSuccess("");
     setBrandFormError("");
+    setComplianceScore(null);
+    setComplianceAnalysis(null);
+    setComplianceSummary("");
+    setComplianceCounts({});
+    setRiskLevel("");
     setAuthPage("login");
   }
 
+  // Show the login page when the user is logged out.
   if (authPage === "login") {
     return (
       <Login
@@ -703,6 +1019,7 @@ setSelectedBrandId((currentId) => {
     );
   }
 
+  // Show the registration page.
   if (authPage === "signup") {
     return (
       <Signup
@@ -712,12 +1029,23 @@ setSelectedBrandId((currentId) => {
     );
   }
 
+  // Count findings that still need attention.
   const activeFindings = findings.filter(
-    (item) => item.status === "OPEN"
+    (item) =>
+      String(item.status || "OPEN").toUpperCase() === "OPEN"
   );
 
+  const totalFindings = findings.length;
+
+  const unresolvedFindings = findings.filter((item) => {
+    const status = String(item.status || "OPEN").toUpperCase();
+
+    return status !== "RESOLVED" && status !== "ACCEPTED";
+  }).length;
+
+  // Filter the saved reviews using the search field.
   const filteredHistory = history.filter((item) =>
-    `${item.title} ${item.content} ${item.brandName}`
+    `${item.title || ""} ${item.content || ""} ${item.brandName || ""}`
       .toLowerCase()
       .includes(search.toLowerCase())
   );
@@ -729,7 +1057,7 @@ setSelectedBrandId((currentId) => {
     { name: "Review history", icon: History },
   ];
 
-  return (
+    return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-logo">
@@ -783,13 +1111,7 @@ setSelectedBrandId((currentId) => {
         </nav>
 
         <div className="sidebar-bottom">
-          <div className="help-card">
-            <Sparkles size={19} />
-            <strong>A second pair of eyes.</strong>
-            <p>
-              Catch issues before your content goes live.
-            </p>
-          </div>
+          
 
           <button className="nav-item" onClick={logout}>
             <LogOut size={18} />
@@ -853,6 +1175,7 @@ setSelectedBrandId((currentId) => {
                   Create your first brand kit before starting a
                   content review.
                 </p>
+
                 <button
                   className="primary-button"
                   onClick={openBrandForm}
@@ -900,11 +1223,14 @@ setSelectedBrandId((currentId) => {
                     <div className="history-icon">
                       <FileSearch size={22} />
                     </div>
+
                     <h3>Your reviews will appear here</h3>
+
                     <p>
                       Start a content review to check your copy
                       against your brand guidelines.
                     </p>
+
                     <button
                       className="primary-button"
                       onClick={startNewReview}
@@ -917,9 +1243,10 @@ setSelectedBrandId((currentId) => {
                 ) : (
                   history.slice(0, 5).map((item) => (
                     <HistoryRow
-                      key={item.id}
+                      key={item.id || item.id}
                       item={item}
                       onOpen={openReview}
+                      onDownload={downloadComplianceReport}
                     />
                   ))
                 )}
@@ -935,6 +1262,7 @@ setSelectedBrandId((currentId) => {
                     CONTENT ASSURANCE
                   </div>
                   <h1>Content review</h1>
+
                   <p className="subheading">
                     Upload a supported text file, use a demo
                     sample, or paste content to review it against
@@ -953,7 +1281,10 @@ setSelectedBrandId((currentId) => {
 
               {!brand && (
                 <section className="panel">
-                  <p>Create a brand kit before reviewing content.</p>
+                  <p>
+                    Create a brand kit before reviewing content.
+                  </p>
+
                   <button
                     className="primary-button"
                     onClick={openBrandForm}
@@ -1034,7 +1365,10 @@ setSelectedBrandId((currentId) => {
                     }}
                   >
                     <Upload size={16} />
-                    {isUploading ? "Reading file..." : "Upload File"}
+                    {isUploading
+                      ? "Reading file..."
+                      : "Upload File"}
+
                     <input
                       type="file"
                       accept=".txt,.csv,.md"
@@ -1116,118 +1450,249 @@ setSelectedBrandId((currentId) => {
                 <button
                   className="primary-button review-button"
                   onClick={runReview}
-                  disabled={reviewLoading || !brand}
+                  disabled={isReviewing || !brand}
                 >
                   <Sparkles size={17} />
-                  {reviewLoading ? "Reviewing..." : "Review content"}
+                  {isReviewing
+                    ? "Reviewing..."
+                    : "Review content"}
                 </button>
 
                 <p className="privacy-note">
                   Check your content against your selected brand
                   guidelines before publishing.
                 </p>
+
                 <p className="privacy-note">
                   Supported file formats: TXT, MD, and CSV.
                 </p>
               </section>
 
-            
+              <section className="panel findings-panel">
+                {reviewed && (
+                  <div className="score-summary">
+                    <div>
+                      <p>Compliance score</p>
+                      <h2>
+                        {complianceScore !== null
+                          ? `${complianceScore}/100`
+                          : "Score unavailable"}
+                      </h2>
+                    </div>
 
-                   
-<section className="panel findings-panel">
-  {reviewed && (
-    <div className="score-summary">
-      <div>
-        <p>Compliance score</p>
-        <h2>
-          {complianceScore !== null
-            ? `${complianceScore}/100`
-            : "Score unavailable"}
-        </h2>
-      </div>
+                    <div>
+                      <p>Risk level</p>
+                      <h3>
+                        {riskLevel
+                          ? riskLevel.replace(/_/g, " ")
+                          : "Unavailable"}
+                      </h3>
+                    </div>
 
-      <div>
-        <p>Risk level</p>
-        <h3>
-          {riskLevel
-            ? riskLevel.replace(/_/g, " ")
-            : "Unavailable"}
-        </h3>
-      </div>
+                    <div>
+                      <p>Total findings</p>
+                      <h3>{totalFindings}</h3>
+                    </div>
 
-      <div>
-        <p>Findings detected</p>
-        <h3>{findings.length}</h3>
-      </div>
-    </div>
-  )}
+                    <div>
+                      <p>Unresolved findings</p>
+                      <h3>{unresolvedFindings}</h3>
+                    </div>
+                  </div>
+                )}
 
-  <h2>Review findings</h2>
+                {reviewed && (
+                  <div
+                    className="compliance-details"
+                    style={{
+                      margin: "18px 0",
+                      padding: "16px",
+                      border: "1px solid #e3e5ef",
+                      borderRadius: "12px",
+                    }}
+                  >
+                    <h3>
+                      <Sparkles
+                        size={18}
+                        style={{
+                          verticalAlign: "middle",
+                          marginRight: "6px",
+                        }}
+                      />
+                      Automated compliance analysis
+                    </h3>
 
-  {!reviewed ? (
-    <p>
-      Upload a supported text file, load the demo
-      sample, or enter content and click Review
-      content.
-    </p>
-  ) : findings.length === 0 ? (
-    <p>
-      No findings were returned. Human review is
-      still recommended before publishing.
-    </p>
-  ) : (
-    findings.map((item) => (
-      <article
-        className="finding-card"
-        key={item.id}
-      >
-        <div className="finding-card-top">
-          <span
-            className={`severity ${item.severity.toLowerCase()}`}
-          >
-            <AlertTriangle size={12} />
-            {item.severity}
-          </span>
-          <strong>{item.category}</strong>
-        </div>
+                    <p>
+                      {complianceSummary ||
+                        "Analysis completed. Review the findings before publishing."}
+                    </p>
 
-        <p>
-          <strong>Issue:</strong>{" "}
-          {item.reason || item.original}
-        </p>
+                    {Object.keys(complianceCounts || {}).length >
+                      0 && (
+                      <div
+                        className="compliance-counts"
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: "10px",
+                          marginTop: "12px",
+                        }}
+                      >
+                        {Object.entries(complianceCounts).map(
+                          ([category, count]) => (
+                            <div
+                              className="compliance-count-item"
+                              key={category}
+                              style={{
+                                padding: "8px 12px",
+                                borderRadius: "8px",
+                                background: "#f5f5fb",
+                              }}
+                            >
+                              <span>
+                                {String(category).replace(/_/g, " ")}:{" "}
+                              </span>
+                              <strong>{count}</strong>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-        <p>
-          <strong>Suggested improvement:</strong>{" "}
-          {item.suggestion}
-        </p>
+                <h2>Review findings</h2>
 
-        <p>
-          <small>{item.source}</small>
-        </p>
+                {!reviewed ? (
+                  <p>
+                    Upload a supported text file, load the demo
+                    sample, or enter content and click Review
+                    content.
+                  </p>
+                ) : findings.length === 0 ? (
+                  <p>
+                    No findings were returned. Human review is
+                    still recommended before publishing.
+                  </p>
+                ) : (
+                  findings.map((item) => (
+                    <article
+                      className="finding-card"
+                      key={item.id}
+                    >
+                      <div className="finding-card-top">
+                        <span
+                          className={`severity ${
+                            String(item.severity || "medium").toLowerCase()
+                          }`}
+                        >
+                          <AlertTriangle size={12} />
+                          {item.severity || "MEDIUM"}
+                        </span>
 
-        {item.status === "OPEN" && (
-          <button
-            className="secondary-button"
-            onClick={() =>
-              changeFindingStatus(item.id, "RESOLVED")
-            }
-          >
-            <CheckCircle2 size={15} />
-            Mark resolved
-          </button>
-        )}
+                        <strong>{item.category}</strong>
+                      </div>
 
-        {item.status !== "OPEN" && <p>Resolved</p>}
-      </article>
-    ))
-  )}
-</section>
+                      <p>
+                        <strong>Issue:</strong>{" "}
+                        {item.reason || item.original}
+                      </p>
+
+                      <p>
+                        <strong>Suggested improvement:</strong>{" "}
+                        {item.suggestion}
+                      </p>
+                      {reviewError && (
+  <p style={{ color: "red" }}>{reviewError}</p>
+)}
+                      <button
+  type="button"
+  onClick={() => {
+    setEditingFindingId(item.id);
+    setEditedSuggestion(item.suggestion || "");
+  }}
+>
+  Edit suggestion
+</button>
+
+{editingFindingId === item.id && (
+  <div className="suggestion-editor">
+    <textarea
+      value={editedSuggestion}
+      onChange={(event) => setEditedSuggestion(event.target.value)}
+      rows={3}
+      placeholder="Enter an improved suggestion"
+    />
+
+    
+<button
+  type="button"
+  onClick={async () => {
+    const saved = await updateFindingSuggestion(
+      item.id,
+      editedSuggestion
+    );
+
+    if (saved) {
+      setEditingFindingId(null);
+      setEditedSuggestion("");
+    }
+  }}
+>
+  Save suggestion
+</button>
 
 
+    <button
+      type="button"
+      onClick={() => setEditingFindingId(null)}
+    >
+      Cancel
+    </button>
+  </div>
+)}
+                      <p>
+                        <small>{item.source}</small>
+                      </p>
+
+                      {String(item.status || "OPEN").toUpperCase() ===
+                        "OPEN" && (
+                        <button
+                          className="secondary-button"
+                          onClick={() =>
+                            changeFindingStatus(item.id, "RESOLVED")
+                          }
+                        >
+                          <CheckCircle2 size={15} />
+                          Mark resolved
+                        </button>
+                      )}
+                      {String(item.status || "OPEN").toUpperCase() ===
+                         "OPEN" && (
+                          <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() =>
+                          changeFindingStatus(item.id, "ACCEPTED")
+                              }
+                           >
+                          Accept finding
+                             </button>
+                            )}
+
+                      {String(item.status || "").toUpperCase() ===
+                        "RESOLVED" && <p>Resolved</p>}
+
+                      {String(item.status || "").toUpperCase() ===
+                        "ACCEPTED" && <p>Accepted</p>}
+                    </article>
+                  ))
+                )}
+              </section>
             </>
           )}
 
-          {page === "Brand Kit" && (
+             {page === "Brand Kit" && (
             <>
               <div className="page-heading">
                 <div>
@@ -1576,9 +2041,10 @@ setSelectedBrandId((currentId) => {
                 ) : (
                   filteredHistory.map((item) => (
                     <HistoryRow
-                      key={item.id}
+                      key={item.id || item.id}
                       item={item}
                       onOpen={openReview}
+                      onDownload={downloadComplianceReport}
                     />
                   ))
                 )}
@@ -1598,7 +2064,9 @@ setSelectedBrandId((currentId) => {
   );
 }
 
-function HistoryRow({ item, onOpen }) {
+
+
+function HistoryRow({ item, onOpen, onDownload }) {
   return (
     <div className="history-row">
       <div className="history-icon">
@@ -1611,6 +2079,7 @@ function HistoryRow({ item, onOpen }) {
             item.content?.slice(0, 55) ||
             "Content review"}
         </strong>
+
         <span>
           {item.brandName} · {item.date}
         </span>
@@ -1625,13 +2094,29 @@ function HistoryRow({ item, onOpen }) {
       </span>
 
       <button
+        type="button"
         className="history-open-button"
         onClick={() => onOpen(item)}
       >
         Open review
       </button>
+
+      <button
+        type="button"
+        className="primary-button"
+        onClick={() => {
+          console.log("Download button clicked");
+          console.log("Review item:", item);
+          console.log("Review ID:", item.id || item._id);
+          onDownload(item.id || item._id);
+        }}
+      >
+        Download PDF
+      </button>
     </div>
   );
 }
 
-export default App;
+
+
+export default App;       

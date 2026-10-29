@@ -1,4 +1,3 @@
-
 const penalties = {
   critical: 25,
   high: 15,
@@ -10,12 +9,22 @@ function calculateComplianceScore(findings = []) {
   let deductions = 0;
 
   for (const finding of findings) {
-    if (finding.status !== "resolved") {
-      deductions += penalties[finding.severity] || 0;
+    // Resolved findings no longer reduce the score.
+    if (finding.status === "resolved") {
+      continue;
     }
+
+    const severity = String(
+      finding.severity || "medium"
+    ).toLowerCase();
+
+    deductions += penalties[severity] ?? penalties.medium;
   }
 
-  const score = Math.max(0, Math.min(100, 100 - deductions));
+  const score = Math.max(
+    0,
+    Math.min(100, 100 - deductions)
+  );
 
   let riskLevel;
 
@@ -29,7 +38,12 @@ function calculateComplianceScore(findings = []) {
     riskLevel = "critical";
   }
 
-  return { score, riskLevel };
+  return {
+    score,
+    riskLevel,
+  };
 }
 
-module.exports = { calculateComplianceScore };
+module.exports = {
+  calculateComplianceScore,
+};
