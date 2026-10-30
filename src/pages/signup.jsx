@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { ShieldCheck, Eye, EyeOff, ArrowRight } from "lucide-react";
 import "../AuthPages.css";
 
-const API_URL = "https://tools-smallest-eagle-concentration.trycloudflare.com/api/auth";
+const API_URL = "https://dale-tones-impacts-documented.trycloudflare.com/api/auth";
 export default function Signup({ onNavigate, onSubmit }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");

@@ -22,7 +22,7 @@ import "./App.css";
 import Login from "./pages/login.jsx";
 import Signup from "./pages/signup.jsx";
 
-const API_URL = "https://tools-smallest-eagle-concentration.trycloudflare.com/api";
+const API_URL = "https://dale-tones-impacts-documented.trycloudflare.com/api";
 const DEMO_SAMPLE = `Meet our daily skincare essentials!
 
 Our hydrating face cleanser supports your daily skincare routine and helps maintain hydration.
