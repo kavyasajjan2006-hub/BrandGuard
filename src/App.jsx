@@ -23,15 +23,7 @@ import Login from "./pages/login.jsx";
 import Signup from "./pages/signup.jsx";
 
 const API_URL = "https://invisible-peace-revision-opportunities.trycloudflare.com/api";
-const DEMO_SAMPLE = `Meet our daily skincare essentials!
 
-Our hydrating face cleanser supports your daily skincare routine and helps maintain hydration.
-
-Try our SPF 50 sunscreen as part of your daily sun protection routine.
-
-Our products guarantee results and cure acne in three days.
-
-Enjoy a simple routine designed for healthy-looking skin.`;
 
 const EMPTY_BRAND_FORM = {
   name: "",
@@ -519,16 +511,6 @@ const [editedSuggestion, setEditedSuggestion] = useState("");
     }
   }
 
-  // Restore demo sample content.
-  function useDemoSample() {
-    setTitle("Demo Skincare Campaign");
-    setContent(DEMO_SAMPLE);
-    setUploadedFileName("");
-    setFindings([]);
-    setReviewed(false);
-    setReviewError("");
-    setUploadError("");
-  }
 
   // Read supported text files into the editor.
   async function handleFileUpload(event) {
@@ -1200,8 +1182,9 @@ async function updateFindingSuggestion(findingId, suggestion) {
                   </div>
                   <h1>Good morning, reviewer</h1>
                   <p className="subheading">
-                    Review content against your saved brand rules.
-                  </p>
+  Upload a supported text file or paste your marketing
+  content to review it against your brand rules.
+</p>
                 </div>
 
                 <button
@@ -1377,14 +1360,7 @@ async function updateFindingSuggestion(findingId, suggestion) {
                     />
                   </label>
 
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={useDemoSample}
-                  >
-                    <Sparkles size={16} />
-                    Use Demo Sample
-                  </button>
+                  
 
                   {content && (
                     <button
@@ -1441,7 +1417,7 @@ async function updateFindingSuggestion(findingId, suggestion) {
                     setContent(event.target.value);
                     setUploadedFileName("");
                   }}
-                  placeholder="Upload a supported text file, use the demo sample, or paste your marketing copy here..."
+                  placeholder="Upload a supported text file or paste your marketing copy here..."
                 />
 
                 <p>{content.length} characters</p>
@@ -1564,10 +1540,9 @@ async function updateFindingSuggestion(findingId, suggestion) {
 
                 {!reviewed ? (
                   <p>
-                    Upload a supported text file, load the demo
-                    sample, or enter content and click Review
-                    content.
-                  </p>
+  Upload a supported text file or enter your content,
+  then click Review content.
+</p>
                 ) : findings.length === 0 ? (
                   <p>
                     No findings were returned. Human review is
