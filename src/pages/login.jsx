@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { ShieldCheck, Eye, EyeOff, ArrowRight } from "lucide-react";
 import "../AuthPages.css";
 
-const API_URL = "https://dale-tones-impacts-documented.trycloudflare.com/api/auth";
+const API_URL = "https://invisible-peace-revision-opportunities.trycloudflare.com/api/auth";
 export default function Login({ onNavigate, onSubmit }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
