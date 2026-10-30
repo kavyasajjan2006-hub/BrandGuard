@@ -9,19 +9,26 @@ const complianceReviewRoutes = require("./routes/complianceReviewRoutes");
 
 const app = express();
 
+const allowedOrigins = (process.env.FRONTEND_URL || "")
+  .split(",")
+  .map((url) => url.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+
 app.use(helmet());
+
 app.use(
   cors({
     origin: (origin, callback) => {
       if (
         !origin ||
         /^http:\/\/localhost:\d+$/.test(origin) ||
-        /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
+        /^http:\/\/127\.0\.0\.1:\d+$/.test(origin) ||
+        allowedOrigins.includes(origin)
       ) {
-        callback(null, true);
-      } else {
-        callback(new Error("Origin not allowed by CORS"));
+        return callback(null, true);
       }
+
+      return callback(new Error("Origin not allowed by CORS"));
     },
   })
 );

@@ -3,8 +3,7 @@ import React, { useState } from "react";
 import { ShieldCheck, Eye, EyeOff, ArrowRight } from "lucide-react";
 import "../AuthPages.css";
 
-const API_URL = "http://localhost:5000/api/auth";
-
+const API_URL = "https://tools-smallest-eagle-concentration.trycloudflare.com/api/auth";
 export default function Login({ onNavigate, onSubmit }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
